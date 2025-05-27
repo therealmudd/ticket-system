@@ -108,7 +108,7 @@ def get_all_tickets_from_database():
     return tickets
 
 
-def create_ticket_image(reference_number):
+def create_ticket_pdf(reference_number):
     # Load the ticket image
     ticket = Image.open("ticket.png").convert("RGBA")
 
@@ -141,9 +141,11 @@ def create_ticket_image(reference_number):
     # Paste the QR code onto the ticket
     ticket.paste(img, (ticket.width//2 - 400//2, ticket.height // 2 - 360//2), mask=img)  # offset from bottom-right
 
-    # Save the image as a PDF
-    pdf_path = "ticket_with_qr.pdf"
-    ticket.convert("RGB").save(pdf_path, "PDF", resolution=100.0)
+    # Save to BytesIO
+    pdf_bytes = io.BytesIO()
+    ticket.convert("RGB").save(pdf_bytes, format="PDF", resolution=100.0)
+    pdf_bytes.seek(0)
+    return pdf_bytes
 
 
 def send_email(name, email, reference_number):
@@ -152,8 +154,6 @@ def send_email(name, email, reference_number):
     msg["Subject"] = "Your ticket for the LT Annual Ball!"
     msg["From"] = "m.antonio0294@gmail.com"
     msg["To"] = email
-
-    create_ticket_image(reference_number)
 
     location_link = "https://www.google.com/maps/dir//15+Mullins+Rd,+Malvern+East,+Germiston,+1401/@-26.1990207,28.0402136,12z/data=!4m8!4m7!1m0!1m5!1m1!1s0x1e9511e61722bd6f:0x3a607bc68bc577a3!2m2!1d28.1227225!2d-26.1990134?entry=ttu&g_ep=EgoyMDI1MDUyMS4wIKXMDSoASAFQAw%3D%3D"
 
@@ -180,10 +180,10 @@ def send_email(name, email, reference_number):
     msg.attach(MIMEText(html, 'html'))
 
     # Attach the PDF
-    with open('ticket_with_qr.pdf', 'rb') as pdf_file:
-        attachment = MIMEApplication(pdf_file.read(), _subtype='pdf')
-        attachment.add_header('Content-Disposition', 'attachment', filename=f'{reference_number}.pdf')
-        msg.attach(attachment)
+    pdf_buffer = create_ticket_pdf(reference_number)
+    attachment = MIMEApplication(pdf_buffer.read(), _subtype='pdf')
+    attachment.add_header('Content-Disposition', 'attachment', filename=f'{reference_number}.pdf')
+    msg.attach(attachment)
 
     # Connect to Gmail SMTP server
     server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
