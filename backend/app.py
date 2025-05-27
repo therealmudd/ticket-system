@@ -16,6 +16,8 @@ from flask import Flask, json, render_template, request, send_file
 from PIL import Image
 import qrcode
 
+dotenv.load_dotenv()
+
 # Firebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from database.firebase_config import db
@@ -26,7 +28,6 @@ from database.firebase_config import db
 # db.execute('CREATE TABLE IF NOT EXISTS tickets (reference_number TEXT, name TEXT, email TEXT, status TEXT)')
 
 app = Flask(__name__, template_folder='../frontend')
-dotenv.load_dotenv()
 
 
 # Functions
