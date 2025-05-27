@@ -220,12 +220,8 @@ def generate():
 
     save_to_database(name, email, reference_number)
 
-    create_ticket_image(reference_number)
-
-    # Test
     send_email(name, email, reference_number)
 
-    # return render_template('ticket.html', name=name, email=email, reference_number=reference_number)
     return {"reference": reference_number}
 
 
