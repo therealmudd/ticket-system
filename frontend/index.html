@@ -227,7 +227,12 @@
             fps: 10,
             qrbox: 250,
           });
-          qrScanner.render(async (qrCodeMessage) => {
+          let qrHasScanned = false; // flag to prevent multiple scans
+
+          qrScanner.render(async (qrCodeMessage, _) => {
+            if (qrHasScanned) return;
+            qrHasScanned = true;
+
             document.getElementById("manualReference").value = qrCodeMessage;
 
             try {
@@ -235,17 +240,23 @@
                 `/redeem-ticket/${encodeURIComponent(qrCodeMessage)}`
               );
               const data = await res.json();
-              const scanContainer =
-                document.querySelectorAll(".tab-content")[1];
+
+              const scanContainer = document.querySelectorAll(".tab-content")[1];
               showAlert(
                 `📷 ${data.result}`,
                 data.result === "ticket redeemed",
                 scanContainer
               );
+
               loadTickets();
             } catch (error) {
               console.error("QR redeem error:", error);
             }
+
+            // Optional: reset scanner after 3 seconds if you want to scan again
+            setTimeout(() => {
+              qrHasScanned = false;
+            }, 3000);
           });
         }
 
@@ -261,6 +272,7 @@
         fetch("/tickets")
           .then((res) => res.json())
           .then((tickets) => {
+            tickets.sort((a, b) => b[0].localeCompare(a[0]));
             tickets.forEach((ticket) => {
               const li = document.createElement("li");
               li.className =
