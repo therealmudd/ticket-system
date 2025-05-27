@@ -5,6 +5,7 @@ import io
 import uuid
 import smtplib
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from email.mime.application import MIMEApplication
 from email.mime.image import MIMEImage
@@ -32,7 +33,7 @@ app = Flask(__name__, template_folder='../frontend')
 
 # Functions
 def generate_reference_number():
-    today = datetime.now().strftime("%d%m%Y")
+    today = datetime.now(ZoneInfo("Africa/Johannesburg")).strftime("%d%m%Y")
     counter_doc = db.collection("daily_counters").document(today)
 
     # Get or create the daily counter
