@@ -65,7 +65,7 @@
           <input
             type="text"
             id="manualReference"
-            placeholder="# e.g. A1284"
+            placeholder="# e.g. TKT01010001001"
             class="w-full p-2 mb-4 border rounded-md"
           />
 
@@ -132,13 +132,25 @@
       window.addEventListener("popstate", initTabFromHash);
       window.addEventListener("DOMContentLoaded", initTabFromHash);
 
-      // Form submission with spinner
+      // Show alert message
+      function showAlert(message, success = true, container) {
+        const alert = document.createElement("div");
+        alert.className = `text-sm p-2 rounded mb-2 ${
+          success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+        }`;
+        alert.textContent = message;
+        container.prepend(alert);
+        setTimeout(() => alert.remove(), 4000);
+      }
+
+      // Form submission with spinner and alert
       document
         .getElementById("ticketForm")
         .addEventListener("submit", async (e) => {
           e.preventDefault();
           const form = e.target;
           const formData = new FormData(form);
+          const formContainer = form.closest(".tab-content");
 
           const submitButton = form.querySelector('button[type="submit"]');
           const originalText = submitButton.innerHTML;
@@ -170,10 +182,12 @@
 
             const data = await response.json();
             console.log("Create Ticket Response:", data);
+            showAlert("🎉 Ticket successfully created!", true, formContainer);
             form.reset();
-            loadTickets(); // ✅ Reload tickets
+            loadTickets();
           } catch (error) {
             console.error("Create Ticket Error:", error);
+            showAlert("⚠️ Failed to create ticket.", false, formContainer);
           } finally {
             submitButton.disabled = false;
             submitButton.style.cursor = "pointer";
@@ -184,14 +198,28 @@
       // Manual check-in
       document
         .getElementById("manualCheckinBtn")
-        .addEventListener("click", () => {
+        .addEventListener("click", async () => {
           const ref = document.getElementById("manualReference").value;
           const statusDiv = document.getElementById("checkinStatus");
-          statusDiv.textContent = `Checking in ticket with reference #${ref}...`;
-          // Optional: send request here
+
+          if (!ref.trim()) {
+            statusDiv.textContent = "Please enter a reference number.";
+            return;
+          }
+
+          try {
+            const res = await fetch(
+              `/redeem-ticket/${encodeURIComponent(ref.trim())}`
+            );
+            const data = await res.json();
+            statusDiv.textContent = data.result;
+          } catch (error) {
+            console.error("Redeem error:", error);
+            statusDiv.textContent = "Error connecting to server.";
+          }
         });
 
-      // QR Scanner
+      // QR Scanner with alert
       window.addEventListener("DOMContentLoaded", () => {
         const reader = document.getElementById("reader");
         if (reader) {
@@ -199,20 +227,35 @@
             fps: 10,
             qrbox: 250,
           });
-          qrScanner.render((qrCodeMessage) => {
+          qrScanner.render(async (qrCodeMessage) => {
             document.getElementById("manualReference").value = qrCodeMessage;
-            document.getElementById("manualCheckinBtn").click();
+
+            try {
+              const res = await fetch(
+                `/redeem-ticket/${encodeURIComponent(qrCodeMessage)}`
+              );
+              const data = await res.json();
+              const scanContainer =
+                document.querySelectorAll(".tab-content")[1];
+              showAlert(
+                `📷 ${data.result}`,
+                data.result === "ticket redeemed",
+                scanContainer
+              );
+              loadTickets();
+            } catch (error) {
+              console.error("QR redeem error:", error);
+            }
           });
         }
 
         loadTickets();
       });
 
-      // ✅ Load and filter tickets
+      // Load and filter tickets
       function loadTickets() {
         const ticketList = document.getElementById("ticketList");
         if (!ticketList) return;
-
         ticketList.innerHTML = "";
 
         fetch("/tickets")
@@ -238,7 +281,6 @@
           .catch((err) => console.error("Error fetching tickets:", err));
       }
 
-      // ✅ Live search filter
       function setupSearchFilter() {
         const searchInput = document.querySelector(
           'input[placeholder*="Search"]'
