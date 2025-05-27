@@ -1,4 +1,5 @@
 import os
+import dotenv
 import sys
 import io
 import uuid
@@ -25,6 +26,8 @@ from database.firebase_config import db
 # db.execute('CREATE TABLE IF NOT EXISTS tickets (reference_number TEXT, name TEXT, email TEXT, status TEXT)')
 
 app = Flask(__name__, template_folder='../frontend')
+dotenv.load_dotenv()
+
 
 # Functions
 def generate_reference_number():
@@ -75,6 +78,20 @@ def get_ticket_from_database(reference_number):
     # cursor = db.execute('SELECT * FROM tickets WHERE reference_number = ?', (reference_number,))
     # ticket = cursor.fetchone()
     # return ticket
+
+
+def update_ticket_status_in_database(reference, status):
+    db.collection("tickets").where("reference_number", "==", reference).get()[0].reference.update({"status": status})
+
+
+def redeem_ticket_from_database(reference):
+    ticket = get_ticket_from_database(reference)
+    if not ticket:
+        return "ticket does not exist"
+    if ticket[3] == "redeemed":
+        return "ticket already redeemed"
+    update_ticket_status_in_database(reference, "redeemed")
+    return "ticket redeemed"
 
 
 def get_all_tickets_from_database():
@@ -180,7 +197,6 @@ def index():
     return render_template('index.html')
 
 
-
 @app.route('/qr/<reference>')
 def qr(reference):
     qr = qrcode.QRCode(box_size=10, border=4)
@@ -224,6 +240,13 @@ def ticket(reference):
     ticket = get_ticket_from_database(reference)
     
     return render_template('ticket.html', name=ticket[1], email=ticket[2], reference_number=ticket[0])
+
+
+@app.route('/redeem-ticket/<reference>')
+def redeem_ticket(reference):
+    result = redeem_ticket_from_database(reference)
+
+    return {"result": result}
 
 
 if __name__ == '__main__':
