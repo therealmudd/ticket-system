@@ -88,7 +88,7 @@ def redeem_ticket_from_database(reference):
     ticket = get_ticket_from_database(reference)
     if not ticket:
         return "ticket does not exist"
-    if ticket[3] == "redeemed":
+    if ticket.get("status") == "redeemed":
         return "ticket already redeemed"
     update_ticket_status_in_database(reference, "redeemed")
     return "ticket redeemed"
@@ -233,13 +233,6 @@ def tickets():
     tickets = get_all_tickets_from_database()
 
     return json.dumps(tickets)
-
-
-@app.route('/ticket/<reference>')
-def ticket(reference):
-    ticket = get_ticket_from_database(reference)
-    
-    return render_template('ticket.html', name=ticket[1], email=ticket[2], reference_number=ticket[0])
 
 
 @app.route('/redeem-ticket/<reference>')
