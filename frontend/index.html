@@ -269,9 +269,15 @@
         if (!ticketList) return;
         ticketList.innerHTML = "";
 
+        const loadingMessage = document.createElement("p");
+        loadingMessage.textContent = "Loading tickets...";
+        loadingMessage.className = "text-center text-gray-500";
+        ticketList.appendChild(loadingMessage);
+
         fetch("/tickets")
           .then((res) => res.json())
           .then((tickets) => {
+            ticketList.removeChild(loadingMessage);
             tickets.sort((a, b) => b[0].localeCompare(a[0]));
             tickets.forEach((ticket) => {
               const li = document.createElement("li");
@@ -290,7 +296,10 @@
             });
             setupSearchFilter();
           })
-          .catch((err) => console.error("Error fetching tickets:", err));
+          .catch((err) => {
+            console.error("Error fetching tickets:", err);
+            ticketList.removeChild(loadingMessage);
+          });
       }
 
       function setupSearchFilter() {
