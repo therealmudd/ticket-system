@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ticket App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/html5-qrcode" defer></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+  <!-- Navigation Tabs -->
+  <nav class="fixed top-0 left-0 right-0 bg-white shadow z-10">
+    <div class="flex justify-around py-3">
+      <button class="tab-btn text-indigo-600 font-semibold">➕ Create</button>
+      <button class="tab-btn">📷 Scan</button>
+      <button class="tab-btn">🎟️ Tickets</button>
+    </div>
+  </nav>
+
+  <div class="pt-20 px-4 space-y-8 max-w-md mx-auto">
+
+    <!-- Create Ticket Page -->
+    <section class="tab-content block">
+      <div class="bg-white rounded-xl p-6 shadow">
+        <h2 class="text-lg font-semibold mb-4">➕ Create Ticket</h2>
+        <form id="ticketForm" class="space-y-4">
+          <label class="block text-sm font-medium">Full Name</label>
+          <input type="text" name="name" placeholder="Attendee's full name" class="w-full p-2 border rounded-md" required />
+
+          <label class="block text-sm font-medium">Email</label>
+          <input type="email" name="email" placeholder="email@example.com" class="w-full p-2 border rounded-md" required />
+
+          <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700">
+            🎟️ Issue Ticket
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Scan Ticket Page -->
+    <section class="tab-content hidden">
+      <div class="bg-white rounded-xl p-6 shadow text-center">
+        <h2 class="text-lg font-semibold mb-4">📷 Scan Ticket</h2>
+        <p class="text-sm mb-4">Allow camera access to scan a ticket QR code or enter the reference number manually.</p>
+        
+        <div id="reader" class="bg-indigo-100 p-2 rounded-lg mb-4"></div>
+
+        <input type="text" id="manualReference" placeholder="# e.g. A1284" class="w-full p-2 mb-4 border rounded-md" />
+        
+        <button id="manualCheckinBtn" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700">
+          ✅ Check Ticket
+        </button>
+
+        <div id="checkinStatus" class="mt-2 text-sm text-gray-600"></div>
+      </div>
+    </section>
+
+    <!-- Tickets List Page -->
+    <section class="tab-content hidden">
+      <div class="bg-white rounded-xl p-6 shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-lg font-semibold">🎟️ Tickets Sold</h2>
+          <button class="text-indigo-600 text-sm font-semibold">🔍 Filter</button>
+        </div>
+
+        <input type="text" placeholder="Search by name, email..." class="w-full p-2 mb-4 border rounded-md" />
+
+        <!-- Ticket Items -->
+        <ul id="ticketList" class="space-y-3">
+          <!-- Will be dynamically filled -->
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Tab switching
+    const tabs = document.querySelectorAll(".tab-btn");
+    const contents = document.querySelectorAll(".tab-content");
+
+    tabs.forEach((btn, index) => {
+      btn.addEventListener("click", () => {
+        tabs.forEach(tab => tab.classList.remove("text-indigo-600", "font-semibold"));
+        contents.forEach(c => c.classList.add("hidden"));
+
+        btn.classList.add("text-indigo-600", "font-semibold");
+        contents[index].classList.remove("hidden");
+      });
+    });
+
+    // Form submission with spinner
+    document.getElementById('ticketForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const form = e.target;
+      const formData = new FormData(form);
+
+      const submitButton = form.querySelector('button[type="submit"]');
+      const originalText = submitButton.innerHTML;
+
+      const spinner = document.createElement('span');
+      spinner.classList.add(
+        'animate-spin',
+        'h-5',
+        'w-5',
+        'border-4',
+        'border-white',
+        'border-t-transparent',
+        'rounded-full',
+        'inline-block',
+        'ml-2',
+        'align-middle'
+      );
+
+      submitButton.disabled = true;
+      submitButton.style.cursor = 'not-allowed';
+      submitButton.innerHTML = 'Creating...';
+      submitButton.appendChild(spinner);
+
+      try {
+        const response = await fetch('/create_ticket', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+        console.log('Create Ticket Response:', data);
+        form.reset();
+      } catch (error) {
+        console.error('Create Ticket Error:', error);
+      } finally {
+        submitButton.disabled = false;
+        submitButton.style.cursor = 'pointer';
+        submitButton.innerHTML = originalText;
+      }
+    });
+
+    // Manual check-in button
+    document.getElementById('manualCheckinBtn').addEventListener('click', () => {
+      const ref = document.getElementById('manualReference').value;
+      const statusDiv = document.getElementById('checkinStatus');
+      statusDiv.textContent = `Checking in ticket with reference #${ref}...`;
+      // Optional: make API request here
+    });
+
+    // QR scanner
+    window.addEventListener('DOMContentLoaded', () => {
+      if (document.getElementById('reader')) {
+        const qrScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+        qrScanner.render(qrCodeMessage => {
+          document.getElementById('manualReference').value = qrCodeMessage;
+          document.getElementById('manualCheckinBtn').click();
+        });
+      }
+
+      // Fetch tickets
+      fetch('/tickets')
+        .then(res => res.json())
+        .then(tickets => {
+          const ticketList = document.getElementById('ticketList');
+          tickets.forEach(ticket => {
+            const li = document.createElement('li');
+            li.className = 'p-3 border rounded-md flex justify-between items-center';
+
+            li.innerHTML = `
+              <div>
+                <p class="font-semibold">#${ticket[0]} – ${ticket[1]}</p>
+                <p class="text-sm text-gray-600">${ticket[2]}</p>
+              </div>
+              <div class="text-right text-sm text-gray-500">
+                <p>${ticket[3]}</p>
+              </div>
+            `;
+
+            ticketList.appendChild(li);
+          });
+        })
+        .catch(err => console.error('Error fetching tickets:', err));
+    });
+  </script>
+</body>
+</html>
