@@ -285,11 +285,11 @@
                 "p-3 border rounded-md flex justify-between items-center";
               li.innerHTML = `
             <div>
-              <p class="font-semibold">#${ticket[0]} – ${ticket[1]}</p>
-              <p class="text-sm text-gray-600">${ticket[2]}</p>
+              <p class="font-semibold" ${ticket[4] ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>#${ticket[0]} – ${ticket[1]}</p>
+              <p class="text-sm text-gray-600" ${ticket[4] ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>${ticket[2]}</p>
             </div>
             <div class="text-right text-sm text-gray-500">
-              <p>${ticket[3]}</p>
+              <p ${ticket[4] ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>${ticket[3]}</p>
             </div>
           `;
               ticketList.appendChild(li);

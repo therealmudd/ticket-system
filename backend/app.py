@@ -20,7 +20,7 @@ import qrcode
 dotenv.load_dotenv()
 
 # Firebase
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from database.firebase_config import db
 
 # SQLite
@@ -28,7 +28,7 @@ from database.firebase_config import db
 # db = sqlite3.connect('database/tickets.db', uri=True, check_same_thread=False)
 # db.execute('CREATE TABLE IF NOT EXISTS tickets (reference_number TEXT, name TEXT, email TEXT, status TEXT)')
 
-app = Flask(__name__, template_folder='../frontend')
+app = Flask(__name__, template_folder="../frontend")
 
 
 # Functions
@@ -57,7 +57,7 @@ def save_to_database(name, email, reference_number):
         "name": name,
         "email": email,
         "reference_number": reference_number,
-        "status": "sold"
+        "status": "sold",
     }
 
     db.collection("tickets").add(ticket_data)
@@ -83,7 +83,9 @@ def get_ticket_from_database(reference_number):
 
 
 def update_ticket_status_in_database(reference, status):
-    db.collection("tickets").where("reference_number", "==", reference).get()[0].reference.update({"status": status})
+    db.collection("tickets").where("reference_number", "==", reference).get()[
+        0
+    ].reference.update({"status": status})
 
 
 def redeem_ticket_from_database(reference):
@@ -100,7 +102,17 @@ def get_all_tickets_from_database():
     # Firebase
     tickets_ref = db.collection("tickets")
     tickets_docs = tickets_ref.stream()
-    tickets = [[doc.get("reference_number"), doc.get("name"), doc.get("email"), doc.get("status")] for doc in tickets_docs]
+
+    tickets = [
+        [
+            doc.get("reference_number"),
+            doc.get("name"),
+            doc.get("email"),
+            doc.get("status"),
+            doc.to_dict().get("disabled", False),
+        ]
+        for doc in tickets_docs
+    ]
 
     # SQLite
     # cursor = db.execute('SELECT * FROM tickets')
@@ -114,11 +126,11 @@ def create_ticket_pdf(reference_number):
     ticket = Image.open("ticket.png").convert("RGBA")
 
     qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=0,
-        )
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=0,
+    )
     qr.add_data(reference_number)
     qr.make(fit=True)
 
@@ -140,7 +152,9 @@ def create_ticket_pdf(reference_number):
     img.putdata(new_data)
 
     # Paste the QR code onto the ticket
-    ticket.paste(img, (ticket.width//2 - 400//2, ticket.height // 2 - 360//2), mask=img)  # offset from bottom-right
+    ticket.paste(
+        img, (ticket.width // 2 - 400 // 2, ticket.height // 2 - 360 // 2), mask=img
+    )  # offset from bottom-right
 
     # Save to BytesIO
     pdf_bytes = io.BytesIO()
@@ -178,12 +192,14 @@ def send_email(name, email, reference_number):
     """
 
     # Attach HTML
-    msg.attach(MIMEText(html, 'html'))
+    msg.attach(MIMEText(html, "html"))
 
     # Attach the PDF
     pdf_buffer = create_ticket_pdf(reference_number)
-    attachment = MIMEApplication(pdf_buffer.read(), _subtype='pdf')
-    attachment.add_header('Content-Disposition', 'attachment', filename=f'{reference_number}.pdf')
+    attachment = MIMEApplication(pdf_buffer.read(), _subtype="pdf")
+    attachment.add_header(
+        "Content-Disposition", "attachment", filename=f"{reference_number}.pdf"
+    )
     msg.attach(attachment)
 
     # Connect to Gmail SMTP server
@@ -194,29 +210,29 @@ def send_email(name, email, reference_number):
 
 
 # Routes
-@app.route('/')
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
 
-@app.route('/qr/<reference>')
+@app.route("/qr/<reference>")
 def qr(reference):
     qr = qrcode.QRCode(box_size=10, border=4)
     qr.add_data(reference)
     qr.make(fit=True)
-    img = qr.make_image(fill='black', back_color='white')
+    img = qr.make_image(fill="black", back_color="white")
 
     buf = io.BytesIO()
-    img.save(buf, format='PNG')
+    img.save(buf, format="PNG")
     buf.seek(0)
 
-    return send_file(buf, mimetype='image/png')
+    return send_file(buf, mimetype="image/png")
 
 
-@app.route('/create_ticket', methods=['POST'])
+@app.route("/create_ticket", methods=["POST"])
 def generate():
-    name = request.form['name']
-    email = request.form['email']
+    name = request.form["name"]
+    email = request.form["email"]
     reference_number = generate_reference_number()
 
     save_to_database(name, email, reference_number)
@@ -226,19 +242,19 @@ def generate():
     return {"reference": reference_number}
 
 
-@app.route('/tickets')
+@app.route("/tickets")
 def tickets():
     tickets = get_all_tickets_from_database()
 
     return json.dumps(tickets)
 
 
-@app.route('/redeem-ticket/<reference>')
+@app.route("/redeem-ticket/<reference>")
 def redeem_ticket(reference):
     result = redeem_ticket_from_database(reference)
 
     return {"result": result}
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
