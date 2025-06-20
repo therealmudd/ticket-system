@@ -84,7 +84,7 @@
       <section class="tab-content hidden">
         <div class="bg-white rounded-xl p-6 shadow">
           <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-semibold">🎟️ Tickets Sold</h2>
+            <h2 class="text-lg font-semibold">🎟️ Tickets Sold (<span id="numTicketsSold">0</span>)</h2>
             <button class="text-indigo-600 text-sm font-semibold">
               🔍 Filter
             </button>
@@ -278,7 +278,9 @@
           .then((res) => res.json())
           .then((tickets) => {
             ticketList.removeChild(loadingMessage);
-            tickets.sort((a, b) => b[0].localeCompare(a[0]));
+            // tickets.sort((a, b) => b[0].localeCompare(a[0]));
+            const numTicketsSold = document.getElementById("numTicketsSold");
+            numTicketsSold.textContent = tickets.filter((ticket) => !ticket[4]).length;
             tickets.forEach((ticket) => {
               const li = document.createElement("li");
               li.className =

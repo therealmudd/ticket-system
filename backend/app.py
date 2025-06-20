@@ -118,6 +118,11 @@ def get_all_tickets_from_database():
     # cursor = db.execute('SELECT * FROM tickets')
     # tickets = cursor.fetchall()
 
+    # Sort tickets by date
+    tickets.sort(
+        key=lambda ticket: datetime.strptime(ticket[0][3:11], "%d%m%Y"), reverse=True
+    )
+
     return tickets
 
 
