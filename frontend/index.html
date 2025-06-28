@@ -85,6 +85,8 @@
         <div class="bg-white rounded-xl p-6 shadow">
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-semibold">🎟️ Tickets Sold (<span id="numTicketsSold">0</span>)</h2>
+            <span class="text-gray-600 text-sm"> | </span>
+            <span class="text-gray-600 text-sm">Tickets Redeemed: <span id="numTicketsRedeemed">0</span></span>
             <button class="text-indigo-600 text-sm font-semibold">
               🔍 Filter
             </button>
@@ -281,6 +283,9 @@
             // tickets.sort((a, b) => b[0].localeCompare(a[0]));
             const numTicketsSold = document.getElementById("numTicketsSold");
             numTicketsSold.textContent = tickets.filter((ticket) => !ticket[4]).length;
+            const numTicketsRedeemed = document.getElementById("numTicketsRedeemed");
+            numTicketsRedeemed.textContent = tickets.filter((ticket) => ticket[3] === "redeemed").length;
+
             tickets.forEach((ticket) => {
               const li = document.createElement("li");
               li.className =
