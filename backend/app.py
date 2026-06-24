@@ -4,7 +4,9 @@ import sys
 import io
 import uuid
 import smtplib
+import json as json_module
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from email.mime.application import MIMEApplication
@@ -29,6 +31,19 @@ from database.firebase_config import db
 # db.execute('CREATE TABLE IF NOT EXISTS tickets (reference_number TEXT, name TEXT, email TEXT, status TEXT)')
 
 app = Flask(__name__, template_folder="../frontend")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+TICKET_IMAGE = os.getenv("TICKET_IMAGE", "ticket2.png")
+TICKET_QR_CONFIG_PATH = PROJECT_ROOT / "ticket_qr_config.json"
+
+DEFAULT_QR_CONFIG = {
+    "x": None,
+    "y": None,
+    "size": 400,
+    "color": "#392d17",
+    "background": "transparent",
+    "border": 0,
+}
 
 
 # Functions
@@ -65,6 +80,18 @@ def save_to_database(name, email, reference_number):
     # # SQLite
     # db.execute('INSERT INTO tickets (reference_number, name, email, status) VALUES (?, ?, ?, ?)', (reference_number, name, email, 'sold'))
     # db.commit()
+
+
+def load_ticket_qr_config(ticket_image_name):
+    if not TICKET_QR_CONFIG_PATH.exists():
+        return DEFAULT_QR_CONFIG.copy()
+
+    with TICKET_QR_CONFIG_PATH.open("r", encoding="utf-8") as config_file:
+        configs = json_module.load(config_file)
+
+    config = DEFAULT_QR_CONFIG.copy()
+    config.update(configs.get(ticket_image_name, {}))
+    return config
 
 
 def get_ticket_from_database(reference_number):
@@ -127,39 +154,38 @@ def get_all_tickets_from_database():
 
 
 def create_ticket_pdf(reference_number):
+    ticket_path = PROJECT_ROOT / TICKET_IMAGE
+    qr_config = load_ticket_qr_config(TICKET_IMAGE)
+
     # Load the ticket image
-    ticket = Image.open("ticket.png").convert("RGBA")
+    ticket = Image.open(ticket_path).convert("RGBA")
 
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
         box_size=10,
-        border=0,
+        border=qr_config["border"],
     )
     qr.add_data(reference_number)
     qr.make(fit=True)
 
-    img = qr.make_image(fill_color="#392d17", back_color="white")
-    img = img.resize((400, 400))
+    size = qr_config["size"]
+    if qr_config["background"] == "transparent":
+        img = qr.make_image(fill_color="black", back_color="white")
+        mask = img.convert("L").point(lambda pixel: 255 if pixel < 128 else 0)
+        mask = mask.resize((size, size), Image.Resampling.NEAREST)
 
-    # Convert to RGBA for transparency
-    img = img.convert("RGBA")
-    datas = img.getdata()
+        img = Image.new("RGBA", (mask.width, mask.height), qr_config["color"])
+        img.putalpha(mask)
+    else:
+        img = qr.make_image(fill_color=qr_config["color"], back_color="white")
+        img = img.convert("RGBA").resize((size, size), Image.Resampling.NEAREST)
 
-    new_data = []
-    for item in datas:
-        # If the pixel is white, make it transparent
-        if item[0] == 255 and item[1] == 255 and item[2] == 255:
-            new_data.append((255, 255, 255, 0))
-        else:
-            new_data.append(item)
-
-    img.putdata(new_data)
+    x = qr_config["x"] if qr_config["x"] is not None else (ticket.width - size) // 2
+    y = qr_config["y"] if qr_config["y"] is not None else (ticket.height - size) // 2
 
     # Paste the QR code onto the ticket
-    ticket.paste(
-        img, (ticket.width // 2 - 400 // 2, ticket.height // 2 - 360 // 2), mask=img
-    )  # offset from bottom-right
+    ticket.paste(img, (x, y), mask=img)
 
     # Save to BytesIO
     pdf_bytes = io.BytesIO()

@@ -1,0 +1,18 @@
+{
+  "ticket.png": {
+    "x": null,
+    "y": null,
+    "size": 400,
+    "color": "#392d17",
+    "background": "transparent",
+    "border": 0
+  },
+  "ticket2.png": {
+    "x": null,
+    "y": 480,
+    "size": 330,
+    "color": "#ffffff",
+    "background": "transparent",
+    "border": 0
+  }
+}
