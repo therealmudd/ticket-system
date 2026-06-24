@@ -3,3 +3,5 @@ credentials.json
 .env
 *.db
 .vercel
+ticket_qr_preview.*
+venv
