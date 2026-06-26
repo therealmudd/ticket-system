@@ -23,6 +23,57 @@ The default maximum is 10 tickets per request. Override it with:
 $env:MAX_TICKETS_PER_REQUEST="20"
 ```
 
+## Non-Production Testing
+
+Use environment variables to keep local or staging tests away from production
+ticket data and real buyer inboxes.
+
+Start by copying `backend/.env.example` to `backend/.env`, then set your real
+Firebase credential value:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+```
+
+Recommended local test settings:
+
+```text
+APP_ENV=local
+EMAIL_MODE=console
+TICKET_IMAGE=ticket2.png
+```
+
+When `APP_ENV` is anything other than `production`, Firestore collections are
+automatically prefixed. For example, `APP_ENV=local` uses:
+
+```text
+local_tickets
+local_daily_counters
+```
+
+This keeps test ticket creation and redemption separate from the production
+`tickets` and `daily_counters` collections.
+
+`EMAIL_MODE=console` still generates the ticket PDFs, but skips SMTP sending and
+prints the intended recipient and references in the server logs.
+
+For a staging/preview deployment where you want to send emails only to yourself:
+
+```text
+APP_ENV=staging
+EMAIL_MODE=smtp
+EMAIL_REDIRECT_TO=your-test-address@example.com
+```
+
+The app also exposes a safe status endpoint:
+
+```text
+/health
+```
+
+It returns the active app environment, email mode, Firestore collection prefix,
+and ticket image. It does not return secrets.
+
 ## Ticket QR Preview
 
 Use `preview_ticket_qr.py` to test QR placement, size, colour, and output format

@@ -2,7 +2,6 @@ import os
 import dotenv
 import sys
 import io
-import uuid
 import smtplib
 import json as json_module
 from datetime import datetime
@@ -10,7 +9,6 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from email.mime.application import MIMEApplication
-from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -20,7 +18,11 @@ from firebase_admin import firestore
 from PIL import Image
 import qrcode
 
-dotenv.load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BACKEND_DIR.parent
+
+dotenv.load_dotenv(PROJECT_ROOT / ".env")
+dotenv.load_dotenv(BACKEND_DIR / ".env", override=True)
 
 # Firebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -33,7 +35,14 @@ from database.firebase_config import db
 
 app = Flask(__name__, template_folder="../frontend")
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+APP_ENV = os.getenv("APP_ENV", "production").strip().lower()
+DEFAULT_COLLECTION_PREFIX = "" if APP_ENV == "production" else f"{APP_ENV}_"
+FIRESTORE_COLLECTION_PREFIX = os.getenv(
+    "FIRESTORE_COLLECTION_PREFIX", DEFAULT_COLLECTION_PREFIX
+)
+EMAIL_MODE = os.getenv("EMAIL_MODE", "smtp").strip().lower()
+EMAIL_REDIRECT_TO = os.getenv("EMAIL_REDIRECT_TO")
+EMAIL_FROM = os.getenv("EMAIL_FROM", os.getenv("EMAIL", "m.antonio0294@gmail.com"))
 TICKET_IMAGE = os.getenv("TICKET_IMAGE", "ticket2.png")
 TICKET_QR_CONFIG_PATH = PROJECT_ROOT / "ticket_qr_config.json"
 MAX_TICKETS_PER_REQUEST = int(os.getenv("MAX_TICKETS_PER_REQUEST", "10"))
@@ -49,6 +58,10 @@ DEFAULT_QR_CONFIG = {
 
 
 # Functions
+def firestore_collection(name):
+    return db.collection(f"{FIRESTORE_COLLECTION_PREFIX}{name}")
+
+
 @firestore.transactional
 def reserve_reference_numbers(transaction, counter_doc, quantity):
     counter_snapshot = counter_doc.get(transaction=transaction)
@@ -61,7 +74,7 @@ def reserve_reference_numbers(transaction, counter_doc, quantity):
 
 def generate_reference_numbers(quantity):
     today = datetime.now(ZoneInfo("Africa/Johannesburg")).strftime("%d%m%Y")
-    counter_doc = db.collection("daily_counters").document(today)
+    counter_doc = firestore_collection("daily_counters").document(today)
     transaction = db.transaction()
     start_count, end_count = reserve_reference_numbers(
         transaction, counter_doc, quantity
@@ -80,7 +93,7 @@ def save_to_database(name, email, reference_number):
         "status": "sold",
     }
 
-    db.collection("tickets").add(ticket_data)
+    firestore_collection("tickets").add(ticket_data)
 
     # # SQLite
     # db.execute('INSERT INTO tickets (reference_number, name, email, status) VALUES (?, ?, ?, ?)', (reference_number, name, email, 'sold'))
@@ -99,7 +112,7 @@ def save_multiple_to_database(name, email, reference_numbers):
             "reference_number": reference_number,
             "status": "sold",
         }
-        ticket_doc = db.collection("tickets").document()
+        ticket_doc = firestore_collection("tickets").document()
         batch.set(ticket_doc, ticket_data)
 
     batch.commit()
@@ -119,7 +132,9 @@ def load_ticket_qr_config(ticket_image_name):
 
 def get_ticket_from_database(reference_number):
     # Firebase
-    doc_ref = db.collection("tickets").where("reference_number", "==", reference_number)
+    doc_ref = firestore_collection("tickets").where(
+        "reference_number", "==", reference_number
+    )
     doc = doc_ref.stream()
     ticket = None
     for d in doc:
@@ -133,7 +148,7 @@ def get_ticket_from_database(reference_number):
 
 
 def update_ticket_status_in_database(reference, status):
-    db.collection("tickets").where("reference_number", "==", reference).get()[
+    firestore_collection("tickets").where("reference_number", "==", reference).get()[
         0
     ].reference.update({"status": status})
 
@@ -150,7 +165,7 @@ def redeem_ticket_from_database(reference):
 
 def get_all_tickets_from_database():
     # Firebase
-    tickets_ref = db.collection("tickets")
+    tickets_ref = firestore_collection("tickets")
     tickets_docs = tickets_ref.stream()
 
     tickets = [
@@ -227,8 +242,10 @@ def send_email(name, email, reference_numbers):
     # Email content
     msg = MIMEMultipart()
     msg["Subject"] = f"Your {ticket_word} for the LT Annual Ball!"
-    msg["From"] = "m.antonio0294@gmail.com"
-    msg["To"] = email
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_REDIRECT_TO or email
+    if EMAIL_REDIRECT_TO:
+        msg["X-Original-To"] = email
 
     location_link = "https://www.google.com/maps/dir//15+Mullins+Rd,+Malvern+East,+Germiston,+1401/@-26.1990207,28.0402136,12z/data=!4m8!4m7!1m0!1m5!1m1!1s0x1e9511e61722bd6f:0x3a607bc68bc577a3!2m2!1d28.1227225!2d-26.1990134?entry=ttu&g_ep=EgoyMDI1MDUyMS4wIKXMDSoASAFQAw%3D%3D"
 
@@ -264,6 +281,13 @@ def send_email(name, email, reference_numbers):
         )
         msg.attach(attachment)
 
+    if EMAIL_MODE == "console":
+        print(
+            "EMAIL_MODE=console: skipped SMTP send. "
+            f"to={msg['To']} references={', '.join(reference_numbers)}"
+        )
+        return
+
     # Connect to Gmail SMTP server
     server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
     server.login(os.getenv("EMAIL"), os.getenv("EMAIL_PASSWORD"))
@@ -275,6 +299,16 @@ def send_email(name, email, reference_numbers):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/health")
+def health():
+    return {
+        "app_env": APP_ENV,
+        "email_mode": EMAIL_MODE,
+        "firestore_collection_prefix": FIRESTORE_COLLECTION_PREFIX,
+        "ticket_image": TICKET_IMAGE,
+    }
 
 
 @app.route("/qr/<reference>")
