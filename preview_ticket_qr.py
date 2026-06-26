@@ -20,6 +20,17 @@ def parse_args():
         help="Reference text encoded into the QR code.",
     )
     parser.add_argument(
+        "--payload-version",
+        default="2",
+        choices=["1", "2"],
+        help="QR payload version. Use 1 for old plain-reference QR codes.",
+    )
+    parser.add_argument(
+        "--payload-padding",
+        default="LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD",
+        help="Extra payload text used to make v2 QR codes denser.",
+    )
+    parser.add_argument(
         "--output",
         default="ticket_qr_preview.png",
         help="Output path. Use .png, .jpg, .jpeg, or .pdf.",
@@ -62,14 +73,21 @@ def parse_args():
     return parser.parse_args()
 
 
-def make_qr(reference, size, color, background, border):
+def build_qr_payload(reference, payload_version, payload_padding):
+    if payload_version == "1":
+        return reference
+
+    return f"LT-TICKET|v2|ref={reference}|pad={payload_padding}"
+
+
+def make_qr(reference, size, color, background, border, payload_version, payload_padding):
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
         box_size=10,
         border=border,
     )
-    qr.add_data(reference)
+    qr.add_data(build_qr_payload(reference, payload_version, payload_padding))
     qr.make(fit=True)
 
     if background == "transparent":
@@ -112,6 +130,8 @@ def main():
         color=args.color,
         background=args.background,
         border=args.border,
+        payload_version=args.payload_version,
+        payload_padding=args.payload_padding,
     )
 
     x = args.x if args.x is not None else (ticket.width - args.size) // 2
@@ -123,6 +143,7 @@ def main():
     print(f"Created {output_path}")
     print(f"Ticket: {ticket_path} ({ticket.width}x{ticket.height})")
     print(f"Reference: {args.reference}")
+    print(f"Payload version: {args.payload_version}")
     print(f"QR: x={x}, y={y}, size={args.size}, color={args.color}")
     print(f"Background: {args.background}, border={args.border}")
 

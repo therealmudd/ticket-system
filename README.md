@@ -119,9 +119,38 @@ Useful options:
 --color "#ffffff"
 --background transparent
 --border 0
+--payload-version 2
+--payload-padding LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD
 ```
 
 Set `x` or `y` only when you want to override the default centered position.
+
+## QR Payload Compatibility
+
+New tickets use a denser QR payload by default:
+
+```text
+LT-TICKET|v2|ref=TKT26062026001|pad=LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD
+```
+
+The scanner remains backwards compatible with old tickets whose QR codes contain
+only the plain reference number:
+
+```text
+TKT26062026001
+```
+
+Both formats redeem the same way. To generate old-style QR codes again, set:
+
+```text
+QR_PAYLOAD_VERSION=1
+```
+
+To make the new QR codes more or less dense, change:
+
+```text
+QR_PAYLOAD_PADDING=LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD
+```
 
 ## Ticket Image Configuration
 

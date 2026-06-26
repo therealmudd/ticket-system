@@ -47,6 +47,11 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", os.getenv("EMAIL", "m.antonio0294@gmail.com
 TICKET_IMAGE = os.getenv("TICKET_IMAGE", "ticket2.png")
 TICKET_QR_CONFIG_PATH = PROJECT_ROOT / "ticket_qr_config.json"
 MAX_TICKETS_PER_REQUEST = int(os.getenv("MAX_TICKETS_PER_REQUEST", "10"))
+QR_PAYLOAD_VERSION = os.getenv("QR_PAYLOAD_VERSION", "2").strip()
+QR_PAYLOAD_PADDING = os.getenv(
+    "QR_PAYLOAD_PADDING",
+    "LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD",
+).strip()
 
 DEFAULT_QR_CONFIG = {
     "x": None,
@@ -61,6 +66,26 @@ DEFAULT_QR_CONFIG = {
 # Functions
 def firestore_collection(name):
     return db.collection(f"{FIRESTORE_COLLECTION_PREFIX}{name}")
+
+
+def build_qr_payload(reference_number):
+    if QR_PAYLOAD_VERSION == "1":
+        return reference_number
+
+    return f"LT-TICKET|v2|ref={reference_number}|pad={QR_PAYLOAD_PADDING}"
+
+
+def extract_reference_from_qr_payload(payload):
+    payload = payload.strip()
+
+    if payload.startswith("TKT"):
+        return payload
+
+    for part in payload.split("|"):
+        if part.startswith("ref="):
+            return part.replace("ref=", "", 1).strip()
+
+    return payload
 
 
 @firestore.transactional
@@ -155,6 +180,7 @@ def update_ticket_status_in_database(reference, status):
 
 
 def redeem_ticket_from_database(reference):
+    reference = extract_reference_from_qr_payload(reference)
     ticket = get_ticket_from_database(reference)
     if not ticket:
         return "ticket does not exist"
@@ -205,7 +231,7 @@ def create_ticket_pdf(reference_number):
         box_size=10,
         border=qr_config["border"],
     )
-    qr.add_data(reference_number)
+    qr.add_data(build_qr_payload(reference_number))
     qr.make(fit=True)
 
     size = qr_config["size"]
@@ -441,7 +467,7 @@ def email_preview_attachment(reference):
 @app.route("/qr/<reference>")
 def qr(reference):
     qr = qrcode.QRCode(box_size=10, border=4)
-    qr.add_data(reference)
+    qr.add_data(build_qr_payload(reference))
     qr.make(fit=True)
     img = qr.make_image(fill="black", back_color="white")
 
