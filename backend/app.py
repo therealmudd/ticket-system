@@ -12,7 +12,7 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from flask import Flask, json, render_template, request, send_file
+from flask import Flask, json, jsonify, render_template, request, send_file
 from firebase_admin import firestore
 
 from PIL import Image
@@ -288,6 +288,9 @@ def send_email(name, email, reference_numbers):
         )
         return
 
+    if not os.getenv("EMAIL") or not os.getenv("EMAIL_PASSWORD"):
+        raise RuntimeError("EMAIL and EMAIL_PASSWORD must be set when EMAIL_MODE=smtp.")
+
     # Connect to Gmail SMTP server
     server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
     server.login(os.getenv("EMAIL"), os.getenv("EMAIL_PASSWORD"))
@@ -327,26 +330,33 @@ def qr(reference):
 
 @app.route("/create_ticket", methods=["POST"])
 def generate():
-    name = request.form["name"]
-    email = request.form["email"]
-
     try:
-        quantity = int(request.form.get("quantity", "1"))
-    except ValueError:
-        return {"error": "Quantity must be a number."}, 400
+        name = request.form["name"]
+        email = request.form["email"]
 
-    if quantity < 1 or quantity > MAX_TICKETS_PER_REQUEST:
-        return {
-            "error": f"Quantity must be between 1 and {MAX_TICKETS_PER_REQUEST}."
-        }, 400
+        try:
+            quantity = int(request.form.get("quantity", "1"))
+        except ValueError:
+            return {"error": "Quantity must be a number."}, 400
 
-    reference_numbers = generate_reference_numbers(quantity)
+        if quantity < 1 or quantity > MAX_TICKETS_PER_REQUEST:
+            return {
+                "error": f"Quantity must be between 1 and {MAX_TICKETS_PER_REQUEST}."
+            }, 400
 
-    save_multiple_to_database(name, email, reference_numbers)
+        reference_numbers = generate_reference_numbers(quantity)
 
-    send_email(name, email, reference_numbers)
+        save_multiple_to_database(name, email, reference_numbers)
 
-    return {"references": reference_numbers}
+        send_email(name, email, reference_numbers)
+
+        return {"references": reference_numbers}
+    except Exception as error:
+        app.logger.exception("Create ticket failed")
+        message = "Create ticket failed. Check the Vercel function logs for details."
+        if APP_ENV != "production":
+            message = str(error)
+        return jsonify({"error": message}), 500
 
 
 @app.route("/tickets")
