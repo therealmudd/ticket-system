@@ -39,6 +39,8 @@ Recommended local test settings:
 
 ```text
 APP_ENV=local
+EVENT_ID=2026
+EVENT_NAME=LT Annual Ball 2026
 EMAIL_MODE=console
 TICKET_IMAGE=ticket2.png
 ```
@@ -90,6 +92,28 @@ The app also exposes a safe status endpoint:
 It returns the active app environment, email mode, Firestore collection prefix,
 and ticket image. It does not return secrets.
 
+## Event Separation
+
+Set `EVENT_ID` and `EVENT_NAME` for the active ball:
+
+```text
+EVENT_ID=2026
+EVENT_NAME=LT Annual Ball 2026
+```
+
+New tickets are saved with this event metadata. The ticket list only shows
+tickets for the active `EVENT_ID`, and daily counters are scoped by event and
+date, for example:
+
+```text
+2026_26062026
+```
+
+Older tickets that do not have an `event_id` are separated by the year embedded
+in their reference number. For example, `TKT28062025001` is treated as a 2025
+ticket. Scanning a ticket from a different event returns a clear message instead
+of redeeming it.
+
 ## Ticket QR Preview
 
 Use `preview_ticket_qr.py` to test QR placement, size, colour, and output format
@@ -120,7 +144,7 @@ Useful options:
 --background transparent
 --border 0
 --payload-version 2
---payload-padding LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD
+--payload-padding .
 ```
 
 Set `x` or `y` only when you want to override the default centered position.
@@ -130,7 +154,7 @@ Set `x` or `y` only when you want to override the default centered position.
 New tickets use a denser QR payload by default:
 
 ```text
-LT-TICKET|v2|ref=TKT26062026001|pad=LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD
+LT-TICKET|v2|ref=TKT26062026001|pad=.
 ```
 
 The scanner remains backwards compatible with old tickets whose QR codes contain
@@ -149,7 +173,7 @@ QR_PAYLOAD_VERSION=1
 To make the new QR codes more or less dense, change:
 
 ```text
-QR_PAYLOAD_PADDING=LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD
+QR_PAYLOAD_PADDING=.
 ```
 
 ## Ticket Image Configuration

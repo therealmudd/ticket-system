@@ -22,6 +22,7 @@
       <section class="tab-content block">
         <div class="bg-white rounded-xl p-6 shadow">
           <h2 class="text-lg font-semibold mb-4">➕ Create Ticket</h2>
+          <p class="active-event text-sm text-gray-600 mb-4"></p>
           <form id="ticketForm" class="space-y-4">
             <label class="block text-sm font-medium">Full Name</label>
             <input
@@ -48,6 +49,7 @@
               min="1"
               max="10"
               value="1"
+              id="ticketQuantity"
               class="w-full p-2 border rounded-md"
               required
             />
@@ -66,6 +68,7 @@
       <section class="tab-content hidden">
         <div class="bg-white rounded-xl p-6 shadow text-center">
           <h2 class="text-lg font-semibold mb-4">📷 Scan Ticket</h2>
+          <p class="active-event text-sm text-gray-600 mb-4"></p>
           <p class="text-sm mb-4">
             Allow camera access to scan a ticket QR code or enter the reference
             number manually.
@@ -94,6 +97,7 @@
       <!-- Tickets List Page -->
       <section class="tab-content hidden">
         <div class="bg-white rounded-xl p-6 shadow">
+          <p class="active-event text-sm text-gray-600 mb-4"></p>
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-semibold">🎟️ Tickets Sold (<span id="numTicketsSold">0</span>)</h2>
             <span class="text-gray-600 text-sm"> | </span>
@@ -144,6 +148,25 @@
 
       window.addEventListener("popstate", initTabFromHash);
       window.addEventListener("DOMContentLoaded", initTabFromHash);
+
+      async function loadConfig() {
+        try {
+          const response = await fetch("/config");
+          const config = await parseResponse(response);
+          const eventLabel = `${config.event_name} (${config.event_id})`;
+
+          document.querySelectorAll(".active-event").forEach((element) => {
+            element.textContent = `Active event: ${eventLabel}`;
+          });
+
+          const quantityInput = document.getElementById("ticketQuantity");
+          if (quantityInput) {
+            quantityInput.max = config.max_tickets_per_request;
+          }
+        } catch (error) {
+          console.error("Config load error:", error);
+        }
+      }
 
       // Show alert message
       function showAlert(message, success = true, container, linkUrl = null) {
@@ -270,6 +293,8 @@
 
       // QR Scanner with alert
       window.addEventListener("DOMContentLoaded", () => {
+        loadConfig();
+
         const reader = document.getElementById("reader");
         if (reader) {
           const qrScanner = new Html5QrcodeScanner("reader", {

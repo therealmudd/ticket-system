@@ -37,6 +37,9 @@ from database.firebase_config import db
 app = Flask(__name__, template_folder="../frontend")
 
 APP_ENV = os.getenv("APP_ENV", "production").strip().lower()
+DEFAULT_EVENT_ID = datetime.now(ZoneInfo("Africa/Johannesburg")).strftime("%Y")
+EVENT_ID = os.getenv("EVENT_ID", DEFAULT_EVENT_ID).strip()
+EVENT_NAME = os.getenv("EVENT_NAME", f"LT Annual Ball {EVENT_ID}").strip()
 DEFAULT_COLLECTION_PREFIX = "" if APP_ENV == "production" else f"{APP_ENV}_"
 FIRESTORE_COLLECTION_PREFIX = os.getenv(
     "FIRESTORE_COLLECTION_PREFIX", DEFAULT_COLLECTION_PREFIX
@@ -50,7 +53,7 @@ MAX_TICKETS_PER_REQUEST = int(os.getenv("MAX_TICKETS_PER_REQUEST", "10"))
 QR_PAYLOAD_VERSION = os.getenv("QR_PAYLOAD_VERSION", "2").strip()
 QR_PAYLOAD_PADDING = os.getenv(
     "QR_PAYLOAD_PADDING",
-    "LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD",
+    ".",
 ).strip()
 
 DEFAULT_QR_CONFIG = {
@@ -88,6 +91,23 @@ def extract_reference_from_qr_payload(payload):
     return payload
 
 
+def infer_event_id_from_reference(reference_number):
+    if not reference_number.startswith("TKT") or len(reference_number) < 11:
+        return None
+
+    reference_date = reference_number[3:11]
+    try:
+        return datetime.strptime(reference_date, "%d%m%Y").strftime("%Y")
+    except ValueError:
+        return None
+
+
+def get_ticket_event_id(ticket):
+    return ticket.get("event_id") or infer_event_id_from_reference(
+        ticket.get("reference_number", "")
+    )
+
+
 @firestore.transactional
 def reserve_reference_numbers(transaction, counter_doc, quantity):
     counter_snapshot = counter_doc.get(transaction=transaction)
@@ -100,7 +120,7 @@ def reserve_reference_numbers(transaction, counter_doc, quantity):
 
 def generate_reference_numbers(quantity):
     today = datetime.now(ZoneInfo("Africa/Johannesburg")).strftime("%d%m%Y")
-    counter_doc = firestore_collection("daily_counters").document(today)
+    counter_doc = firestore_collection("daily_counters").document(f"{EVENT_ID}_{today}")
     transaction = db.transaction()
     start_count, end_count = reserve_reference_numbers(
         transaction, counter_doc, quantity
@@ -117,6 +137,8 @@ def save_to_database(name, email, reference_number):
         "email": email,
         "reference_number": reference_number,
         "status": "sold",
+        "event_id": EVENT_ID,
+        "event_name": EVENT_NAME,
     }
 
     firestore_collection("tickets").add(ticket_data)
@@ -137,6 +159,8 @@ def save_multiple_to_database(name, email, reference_numbers):
             "email": email,
             "reference_number": reference_number,
             "status": "sold",
+            "event_id": EVENT_ID,
+            "event_name": EVENT_NAME,
         }
         ticket_doc = firestore_collection("tickets").document()
         batch.set(ticket_doc, ticket_data)
@@ -156,16 +180,27 @@ def load_ticket_qr_config(ticket_image_name):
     return config
 
 
-def get_ticket_from_database(reference_number):
-    # Firebase
+def get_ticket_document_from_database(reference_number):
     doc_ref = firestore_collection("tickets").where(
         "reference_number", "==", reference_number
     )
-    doc = doc_ref.stream()
-    ticket = None
-    for d in doc:
-        ticket = d.to_dict()
-    return ticket
+    docs = list(doc_ref.stream())
+    current_event_doc = None
+    other_event_doc = None
+
+    for doc in docs:
+        ticket = doc.to_dict()
+        if get_ticket_event_id(ticket) == EVENT_ID:
+            current_event_doc = doc
+            break
+        other_event_doc = other_event_doc or doc
+
+    return current_event_doc, other_event_doc
+
+
+def get_ticket_from_database(reference_number):
+    current_event_doc, _ = get_ticket_document_from_database(reference_number)
+    return current_event_doc.to_dict() if current_event_doc else None
 
     # SQLite
     # cursor = db.execute('SELECT * FROM tickets WHERE reference_number = ?', (reference_number,))
@@ -174,19 +209,25 @@ def get_ticket_from_database(reference_number):
 
 
 def update_ticket_status_in_database(reference, status):
-    firestore_collection("tickets").where("reference_number", "==", reference).get()[
-        0
-    ].reference.update({"status": status})
+    current_event_doc, _ = get_ticket_document_from_database(reference)
+    if current_event_doc:
+        current_event_doc.reference.update({"status": status})
 
 
 def redeem_ticket_from_database(reference):
     reference = extract_reference_from_qr_payload(reference)
-    ticket = get_ticket_from_database(reference)
-    if not ticket:
+    current_event_doc, other_event_doc = get_ticket_document_from_database(reference)
+    if not current_event_doc:
+        if other_event_doc:
+            other_ticket = other_event_doc.to_dict()
+            other_event_id = get_ticket_event_id(other_ticket) or "unknown"
+            return f"ticket is for {other_event_id}, not {EVENT_ID}"
         return "ticket does not exist"
+
+    ticket = current_event_doc.to_dict()
     if ticket.get("status") == "redeemed":
         return "ticket already redeemed"
-    update_ticket_status_in_database(reference, "redeemed")
+    current_event_doc.reference.update({"status": "redeemed"})
     return "ticket redeemed"
 
 
@@ -197,13 +238,15 @@ def get_all_tickets_from_database():
 
     tickets = [
         [
-            doc.get("reference_number"),
-            doc.get("name"),
-            doc.get("email"),
-            doc.get("status"),
-            doc.to_dict().get("disabled", False),
+            ticket.get("reference_number"),
+            ticket.get("name"),
+            ticket.get("email"),
+            ticket.get("status"),
+            ticket.get("disabled", False),
+            get_ticket_event_id(ticket),
         ]
-        for doc in tickets_docs
+        for ticket in (doc.to_dict() for doc in tickets_docs)
+        if get_ticket_event_id(ticket) == EVENT_ID
     ]
 
     # SQLite
@@ -266,7 +309,7 @@ def build_email_details(name, email, reference_numbers):
         for reference_number in reference_numbers
     )
     recipient = EMAIL_REDIRECT_TO or email
-    subject = f"Your {ticket_word} for the LT Annual Ball!"
+    subject = f"Your {ticket_word} for the {EVENT_NAME}!"
     attachments = [f"{reference_number}.pdf" for reference_number in reference_numbers]
     location_link = "https://www.google.com/maps/dir//15+Mullins+Rd,+Malvern+East,+Germiston,+1401/@-26.1990207,28.0402136,12z/data=!4m8!4m7!1m0!1m5!1m1!1s0x1e9511e61722bd6f:0x3a607bc68bc577a3!2m2!1d28.1227225!2d-26.1990134?entry=ttu&g_ep=EgoyMDI1MDUyMS4wIKXMDSoASAFQAw%3D%3D"
 
@@ -274,9 +317,9 @@ def build_email_details(name, email, reference_numbers):
     <html>
     <body style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="font-size: 24px; margin-bottom: 10px;">Your LT Annual Ball Ticket</h2>
+            <h2 style="font-size: 24px; margin-bottom: 10px;">Your {EVENT_NAME} Ticket</h2>
             <p>Hi {name},</p>
-            <p>Thank you for your purchase! We're excited to have you join us for the LT Annual Ball, happening on <strong>Saturday 27 June, 18:00 at <a href="{location_link}" target="_blank">15 Mullins Rd, Germiston</a>.</strong></p>
+            <p>Thank you for your purchase! We're excited to have you join us for the {EVENT_NAME}, happening on <strong>Saturday 27 June, 18:00 at <a href="{location_link}" target="_blank">15 Mullins Rd, Germiston</a>.</strong></p>
             <p>Please find attached your {ticket_word} for entry - either printed or on your phone.</p>
             <p>Your ticket reference number{"s are" if len(reference_numbers) > 1 else " is"}:</p>
             <ul>{reference_list}</ul>
@@ -348,9 +391,21 @@ def index():
 def health():
     return {
         "app_env": APP_ENV,
+        "event_id": EVENT_ID,
+        "event_name": EVENT_NAME,
         "email_mode": EMAIL_MODE,
         "firestore_collection_prefix": FIRESTORE_COLLECTION_PREFIX,
         "ticket_image": TICKET_IMAGE,
+    }
+
+
+@app.route("/config")
+def config():
+    return {
+        "app_env": APP_ENV,
+        "event_id": EVENT_ID,
+        "event_name": EVENT_NAME,
+        "max_tickets_per_request": MAX_TICKETS_PER_REQUEST,
     }
 
 

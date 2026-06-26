@@ -27,7 +27,7 @@ def parse_args():
     )
     parser.add_argument(
         "--payload-padding",
-        default="LT_ANNUAL_BALL_ENTRY_VALIDATION_PAYLOAD",
+        default=".",
         help="Extra payload text used to make v2 QR codes denser.",
     )
     parser.add_argument(
