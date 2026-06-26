@@ -59,12 +59,18 @@ prints the intended recipient and references in the server logs.
 
 When tickets are created outside production, the create response also includes an
 email preview link. The frontend opens this link in a separate tab so you can
-inspect the email body and attachment filenames without sending to a buyer.
+inspect the email body and generated PDF attachments without sending to a buyer.
 
 Email previews are available only outside production:
 
 ```text
 /email-preview?references=TKT26062026001,TKT26062026002
+```
+
+Preview attachment links are generated as:
+
+```text
+/email-preview/attachments/TKT26062026001
 ```
 
 For a staging/preview deployment where you want to send emails only to yourself:

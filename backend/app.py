@@ -349,7 +349,15 @@ def email_preview():
         ticket["name"], ticket["email"], reference_numbers
     )
     attachment_items = "".join(
-        f"<li>{escape(attachment)}</li>" for attachment in email_details["attachments"]
+        (
+            "<li>"
+            f"<a href=\"{escape(url_for('email_preview_attachment', reference=attachment.removesuffix('.pdf')))}\" "
+            "target=\"_blank\" rel=\"noopener noreferrer\">"
+            f"{escape(attachment)}"
+            "</a>"
+            "</li>"
+        )
+        for attachment in email_details["attachments"]
     )
 
     return f"""
@@ -410,6 +418,24 @@ def email_preview():
       </body>
     </html>
     """
+
+
+@app.route("/email-preview/attachments/<reference>")
+def email_preview_attachment(reference):
+    if APP_ENV == "production":
+        return {"error": "Email preview attachments are only available outside production."}, 404
+
+    ticket = get_ticket_from_database(reference)
+    if not ticket:
+        return {"error": "Ticket not found."}, 404
+
+    pdf_buffer = create_ticket_pdf(reference)
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=f"{reference}.pdf",
+    )
 
 
 @app.route("/qr/<reference>")
