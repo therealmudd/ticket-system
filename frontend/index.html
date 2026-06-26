@@ -405,8 +405,16 @@
                     <p class="text-sm text-gray-600">${ticket[2]}</p>
                     <p class="text-xs text-gray-500">Event: ${ticket[5]}</p>
                   </div>
+                  <button
+                    type="button"
+                    class="edit-ticket h-9 w-9 border rounded-md text-gray-600 hover:bg-gray-100"
+                    title="Edit ticket"
+                    aria-label="Edit ticket"
+                  >
+                    ✎
+                  </button>
                 </div>
-                <div class="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+                <div class="ticket-actions hidden grid grid-cols-[1fr_auto_auto] gap-2 items-center">
                   <select class="ticket-status w-full p-2 border rounded-md text-sm">
                     ${ticketStatusOptions(ticket[3])}
                   </select>
@@ -456,6 +464,25 @@
       function setupTicketActions() {
         const ticketList = document.getElementById("ticketList");
         const ticketsContainer = document.querySelectorAll(".tab-content")[2];
+
+        ticketList.querySelectorAll(".edit-ticket").forEach((button) => {
+          button.addEventListener("click", () => {
+            const item = button.closest("li");
+            const actions = item.querySelector(".ticket-actions");
+            const isEditing = actions.classList.toggle("hidden") === false;
+
+            button.classList.toggle("bg-indigo-100", isEditing);
+            button.classList.toggle("text-indigo-700", isEditing);
+            button.setAttribute(
+              "aria-label",
+              isEditing ? "Close ticket editor" : "Edit ticket"
+            );
+            button.setAttribute(
+              "title",
+              isEditing ? "Close ticket editor" : "Edit ticket"
+            );
+          });
+        });
 
         ticketList.querySelectorAll(".save-ticket-status").forEach((button) => {
           button.addEventListener("click", async () => {
