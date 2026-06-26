@@ -15,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from flask import Flask, json, render_template, request, send_file
+from firebase_admin import firestore
 
 from PIL import Image
 import qrcode
@@ -35,6 +36,7 @@ app = Flask(__name__, template_folder="../frontend")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TICKET_IMAGE = os.getenv("TICKET_IMAGE", "ticket2.png")
 TICKET_QR_CONFIG_PATH = PROJECT_ROOT / "ticket_qr_config.json"
+MAX_TICKETS_PER_REQUEST = int(os.getenv("MAX_TICKETS_PER_REQUEST", "10"))
 
 DEFAULT_QR_CONFIG = {
     "x": None,
@@ -47,22 +49,25 @@ DEFAULT_QR_CONFIG = {
 
 
 # Functions
-def generate_reference_number():
+@firestore.transactional
+def reserve_reference_numbers(transaction, counter_doc, quantity):
+    counter_snapshot = counter_doc.get(transaction=transaction)
+    current_count = counter_snapshot.to_dict().get("count", 0) if counter_snapshot.exists else 0
+    new_count = current_count + quantity
+
+    transaction.set(counter_doc, {"count": new_count})
+    return current_count + 1, new_count
+
+
+def generate_reference_numbers(quantity):
     today = datetime.now(ZoneInfo("Africa/Johannesburg")).strftime("%d%m%Y")
     counter_doc = db.collection("daily_counters").document(today)
+    transaction = db.transaction()
+    start_count, end_count = reserve_reference_numbers(
+        transaction, counter_doc, quantity
+    )
 
-    # Get or create the daily counter
-    counter_snapshot = counter_doc.get()
-    if counter_snapshot.exists:
-        count = counter_snapshot.to_dict().get("count", 0) + 1
-    else:
-        count = 1
-
-    # Update the counter in the DB
-    counter_doc.set({"count": count})
-
-    reference_number = f"TKT{today}{count:03d}"
-    return reference_number
+    return [f"TKT{today}{count:03d}" for count in range(start_count, end_count + 1)]
 
 
 def save_to_database(name, email, reference_number):
@@ -80,6 +85,24 @@ def save_to_database(name, email, reference_number):
     # # SQLite
     # db.execute('INSERT INTO tickets (reference_number, name, email, status) VALUES (?, ?, ?, ?)', (reference_number, name, email, 'sold'))
     # db.commit()
+
+
+def save_multiple_to_database(name, email, reference_numbers):
+    batch = db.batch()
+    timestamp = datetime.now()
+
+    for reference_number in reference_numbers:
+        ticket_data = {
+            "timestamp": timestamp,
+            "name": name,
+            "email": email,
+            "reference_number": reference_number,
+            "status": "sold",
+        }
+        ticket_doc = db.collection("tickets").document()
+        batch.set(ticket_doc, ticket_data)
+
+    batch.commit()
 
 
 def load_ticket_qr_config(ticket_image_name):
@@ -194,10 +217,16 @@ def create_ticket_pdf(reference_number):
     return pdf_bytes
 
 
-def send_email(name, email, reference_number):
+def send_email(name, email, reference_numbers):
+    ticket_word = "ticket" if len(reference_numbers) == 1 else "tickets"
+    reference_list = "".join(
+        f"<li><strong>{reference_number}</strong></li>"
+        for reference_number in reference_numbers
+    )
+
     # Email content
     msg = MIMEMultipart()
-    msg["Subject"] = "Your ticket for the LT Annual Ball!"
+    msg["Subject"] = f"Your {ticket_word} for the LT Annual Ball!"
     msg["From"] = "m.antonio0294@gmail.com"
     msg["To"] = email
 
@@ -211,8 +240,9 @@ def send_email(name, email, reference_number):
             <h2 style="font-size: 24px; margin-bottom: 10px;">Your LT Annual Ball Ticket</h2>
             <p>Hi {name},</p>
             <p>Thank you for your purchase! We're excited to have you join us for the LT Annual Ball, happening on <strong>Saturday 28 June, 18:00 at <a href="{location_link}" target="_blank">15 Mullins Rd, Germiston</a>.</strong></p>
-            <p>Please find attached your ticket for entry - either printed or on your phone.</p>
-            <p>Here's your ticket number: <strong>{reference_number}</strong></p>
+            <p>Please find attached your {ticket_word} for entry - either printed or on your phone.</p>
+            <p>Your ticket reference number{"s are" if len(reference_numbers) > 1 else " is"}:</p>
+            <ul>{reference_list}</ul>
             <p>We're looking forward to an unforgettable event!</p>
             <p>If you have any questions or need further assistance, feel free to reply to this email.</p>
             <p>Best regards,</p>
@@ -225,13 +255,14 @@ def send_email(name, email, reference_number):
     # Attach HTML
     msg.attach(MIMEText(html, "html"))
 
-    # Attach the PDF
-    pdf_buffer = create_ticket_pdf(reference_number)
-    attachment = MIMEApplication(pdf_buffer.read(), _subtype="pdf")
-    attachment.add_header(
-        "Content-Disposition", "attachment", filename=f"{reference_number}.pdf"
-    )
-    msg.attach(attachment)
+    # Attach one PDF per ticket.
+    for reference_number in reference_numbers:
+        pdf_buffer = create_ticket_pdf(reference_number)
+        attachment = MIMEApplication(pdf_buffer.read(), _subtype="pdf")
+        attachment.add_header(
+            "Content-Disposition", "attachment", filename=f"{reference_number}.pdf"
+        )
+        msg.attach(attachment)
 
     # Connect to Gmail SMTP server
     server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
@@ -264,13 +295,24 @@ def qr(reference):
 def generate():
     name = request.form["name"]
     email = request.form["email"]
-    reference_number = generate_reference_number()
 
-    save_to_database(name, email, reference_number)
+    try:
+        quantity = int(request.form.get("quantity", "1"))
+    except ValueError:
+        return {"error": "Quantity must be a number."}, 400
 
-    send_email(name, email, reference_number)
+    if quantity < 1 or quantity > MAX_TICKETS_PER_REQUEST:
+        return {
+            "error": f"Quantity must be between 1 and {MAX_TICKETS_PER_REQUEST}."
+        }, 400
 
-    return {"reference": reference_number}
+    reference_numbers = generate_reference_numbers(quantity)
+
+    save_multiple_to_database(name, email, reference_numbers)
+
+    send_email(name, email, reference_numbers)
+
+    return {"references": reference_numbers}
 
 
 @app.route("/tickets")

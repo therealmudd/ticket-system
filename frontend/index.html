@@ -41,6 +41,17 @@
               required
             />
 
+            <label class="block text-sm font-medium">Number of Tickets</label>
+            <input
+              type="number"
+              name="quantity"
+              min="1"
+              max="10"
+              value="1"
+              class="w-full p-2 border rounded-md"
+              required
+            />
+
             <button
               type="submit"
               class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700"
@@ -183,13 +194,23 @@
             });
 
             const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data.error || "Failed to create tickets.");
+            }
+
             console.log("Create Ticket Response:", data);
-            showAlert("🎉 Ticket successfully created!", true, formContainer);
+            const references = data.references || [];
+            const ticketWord = references.length === 1 ? "Ticket" : "Tickets";
+            showAlert(
+              `${ticketWord} created: ${references.join(", ")}`,
+              true,
+              formContainer
+            );
             form.reset();
             loadTickets();
           } catch (error) {
             console.error("Create Ticket Error:", error);
-            showAlert("⚠️ Failed to create ticket.", false, formContainer);
+            showAlert(error.message, false, formContainer);
           } finally {
             submitButton.disabled = false;
             submitButton.style.cursor = "pointer";

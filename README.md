@@ -6,10 +6,22 @@ Simple web app to generate tickets and scan them.
 
 - Seller enters buyer's email and name and number of tickets
 - Tickets are generated with reference number, date and QR code
-- Tickets are then sent to the buyer via email
+- Tickets are then sent to the buyer via email, with one PDF per ticket
 - Tickets are saved in database
 - Tickets are scanned and verified when used
 - Tickets are deleted from database when used
+
+## Creating Multiple Tickets
+
+The create form supports sending multiple tickets to the same buyer. The backend
+generates one unique reference number per ticket, saves each ticket in Firestore,
+and sends all generated ticket PDFs as attachments in one email.
+
+The default maximum is 10 tickets per request. Override it with:
+
+```powershell
+$env:MAX_TICKETS_PER_REQUEST="20"
+```
 
 ## Ticket QR Preview
 
