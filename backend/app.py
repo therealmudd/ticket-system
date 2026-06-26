@@ -56,6 +56,7 @@ QR_PAYLOAD_PADDING = os.getenv(
     ".",
 ).strip()
 VALID_TICKET_STATUSES = {"sold", "redeemed", "cancelled", "void"}
+NON_REDEEMABLE_STATUSES = {"cancelled", "void"}
 
 DEFAULT_QR_CONFIG = {
     "x": None,
@@ -70,6 +71,35 @@ DEFAULT_QR_CONFIG = {
 # Functions
 def firestore_collection(name):
     return db.collection(f"{FIRESTORE_COLLECTION_PREFIX}{name}")
+
+
+def now_sa():
+    return datetime.now(ZoneInfo("Africa/Johannesburg"))
+
+
+def serialize_firestore_value(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [serialize_firestore_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: serialize_firestore_value(nested_value)
+            for key, nested_value in value.items()
+        }
+    return value
+
+
+def serialize_ticket(ticket):
+    return serialize_firestore_value(ticket)
+
+
+def audit_entry(action, **fields):
+    return {
+        "action": action,
+        "at": now_sa(),
+        **fields,
+    }
 
 
 def build_qr_payload(reference_number):
@@ -132,12 +162,22 @@ def generate_reference_numbers(quantity):
 
 def save_to_database(name, email, reference_number):
     # Firbase
+    timestamp = now_sa()
     ticket_data = {
-        "timestamp": datetime.now(),
+        "timestamp": timestamp,
+        "created_at": timestamp,
         "name": name,
         "email": email,
         "reference_number": reference_number,
         "status": "sold",
+        "status_updated_at": timestamp,
+        "status_history": [
+            {
+                "action": "created",
+                "status": "sold",
+                "at": timestamp,
+            }
+        ],
         "event_id": EVENT_ID,
         "event_name": EVENT_NAME,
     }
@@ -151,15 +191,24 @@ def save_to_database(name, email, reference_number):
 
 def save_multiple_to_database(name, email, reference_numbers):
     batch = db.batch()
-    timestamp = datetime.now()
+    timestamp = now_sa()
 
     for reference_number in reference_numbers:
         ticket_data = {
             "timestamp": timestamp,
+            "created_at": timestamp,
             "name": name,
             "email": email,
             "reference_number": reference_number,
             "status": "sold",
+            "status_updated_at": timestamp,
+            "status_history": [
+                {
+                    "action": "created",
+                    "status": "sold",
+                    "at": timestamp,
+                }
+            ],
             "event_id": EVENT_ID,
             "event_name": EVENT_NAME,
         }
@@ -209,17 +258,67 @@ def get_ticket_from_database(reference_number):
     # return ticket
 
 
-def update_ticket_status_in_database(reference, status):
+def get_ticket_detail_from_database(reference):
+    current_event_doc, _ = get_ticket_document_from_database(reference)
+    if not current_event_doc:
+        return None
+
+    ticket = current_event_doc.to_dict()
+    ticket["event_id"] = get_ticket_event_id(ticket)
+    ticket["pdf_url"] = url_for("ticket_pdf", reference=reference)
+    return serialize_ticket(ticket)
+
+
+def update_ticket_status_in_database(reference, status, action="status_updated"):
     current_event_doc, _ = get_ticket_document_from_database(reference)
     if current_event_doc:
-        current_event_doc.reference.update({"status": status})
+        previous_status = current_event_doc.to_dict().get("status")
+        update_data = {
+            "status": status,
+            "status_updated_at": now_sa(),
+            "status_history": firestore.ArrayUnion(
+                [
+                    audit_entry(
+                        action,
+                        from_status=previous_status,
+                        status=status,
+                    )
+                ]
+            ),
+        }
+        if status == "redeemed":
+            update_data["redeemed_at"] = now_sa()
+        current_event_doc.reference.update(update_data)
         return True
     return False
+
+
+def record_ticket_email_sent(reference):
+    current_event_doc, _ = get_ticket_document_from_database(reference)
+    if current_event_doc:
+        current_event_doc.reference.update(
+            {
+                "email_sent_at": now_sa(),
+                "email_send_count": firestore.Increment(1),
+                "email_history": firestore.ArrayUnion(
+                    [audit_entry("email_sent", to=current_event_doc.to_dict().get("email"))]
+                ),
+            }
+        )
 
 
 def delete_ticket_from_database(reference):
     current_event_doc, _ = get_ticket_document_from_database(reference)
     if current_event_doc:
+        ticket = current_event_doc.to_dict()
+        firestore_collection("ticket_deletions").document().set(
+            {
+                **ticket,
+                "deleted_at": now_sa(),
+                "deleted_reference": reference,
+                "deleted_from_event_id": EVENT_ID,
+            }
+        )
         current_event_doc.reference.delete()
         return True
     return False
@@ -238,7 +337,18 @@ def redeem_ticket_from_database(reference):
     ticket = current_event_doc.to_dict()
     if ticket.get("status") == "redeemed":
         return "ticket already redeemed"
-    current_event_doc.reference.update({"status": "redeemed"})
+    if ticket.get("status") in NON_REDEEMABLE_STATUSES:
+        return f"ticket is {ticket.get('status')}"
+    current_event_doc.reference.update(
+        {
+            "status": "redeemed",
+            "redeemed_at": now_sa(),
+            "status_updated_at": now_sa(),
+            "status_history": firestore.ArrayUnion(
+                [audit_entry("redeemed", status="redeemed")]
+            ),
+        }
+    )
     return "ticket redeemed"
 
 
@@ -565,6 +675,8 @@ def generate():
         save_multiple_to_database(name, email, reference_numbers)
 
         send_email(name, email, reference_numbers)
+        for reference_number in reference_numbers:
+            record_ticket_email_sent(reference_number)
 
         response = {"references": reference_numbers}
         if APP_ENV != "production":
@@ -588,6 +700,30 @@ def tickets():
     return json.dumps(tickets)
 
 
+@app.route("/tickets/<reference>")
+def ticket_detail(reference):
+    ticket = get_ticket_detail_from_database(reference)
+    if not ticket:
+        return {"error": "Ticket not found for the active event."}, 404
+
+    return ticket
+
+
+@app.route("/tickets/<reference>/pdf")
+def ticket_pdf(reference):
+    ticket = get_ticket_from_database(reference)
+    if not ticket:
+        return {"error": "Ticket not found for the active event."}, 404
+
+    pdf_buffer = create_ticket_pdf(reference)
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=f"{reference}.pdf",
+    )
+
+
 @app.route("/tickets/<reference>", methods=["PATCH"])
 def update_ticket(reference):
     data = request.get_json(silent=True) or {}
@@ -602,6 +738,21 @@ def update_ticket(reference):
         return {"error": "Ticket not found for the active event."}, 404
 
     return {"reference": reference, "status": status}
+
+
+@app.route("/tickets/<reference>/resend", methods=["POST"])
+def resend_ticket(reference):
+    ticket = get_ticket_from_database(reference)
+    if not ticket:
+        return {"error": "Ticket not found for the active event."}, 404
+
+    send_email(ticket["name"], ticket["email"], [reference])
+    record_ticket_email_sent(reference)
+
+    response = {"reference": reference, "resent": True}
+    if APP_ENV != "production":
+        response["email_preview_url"] = url_for("email_preview", references=reference)
+    return response
 
 
 @app.route("/tickets/<reference>", methods=["DELETE"])

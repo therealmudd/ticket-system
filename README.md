@@ -26,8 +26,8 @@ $env:MAX_TICKETS_PER_REQUEST="20"
 ## Managing Tickets
 
 The tickets page lets you update a ticket's status or delete a ticket for the
-active event. Ticket admin actions are event-scoped, so they do not update or
-delete tickets from another `EVENT_ID`.
+active event. Ticket admin actions are event-scoped, so they do not update,
+resend, view, or delete tickets from another `EVENT_ID`.
 
 Allowed statuses:
 
@@ -38,10 +38,15 @@ cancelled
 void
 ```
 
+`cancelled` and `void` tickets cannot be redeemed by the scanner.
+
 API endpoints:
 
 ```text
+GET /tickets/<reference>
+GET /tickets/<reference>/pdf
 PATCH /tickets/<reference>
+POST /tickets/<reference>/resend
 DELETE /tickets/<reference>
 ```
 
@@ -52,6 +57,11 @@ Example status update body:
   "status": "cancelled"
 }
 ```
+
+Ticket details include status history, email history, timestamps, and a PDF URL.
+Status updates, redeems, and resend actions append audit entries to the ticket.
+Deletes copy the ticket into the `ticket_deletions` collection before removing it
+from the active ticket list.
 
 ## Non-Production Testing
 

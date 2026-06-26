@@ -225,6 +225,97 @@
         return data;
       }
 
+      async function fetchTicketDetail(reference) {
+        const response = await fetch(`/tickets/${encodeURIComponent(reference)}`);
+        const data = await parseResponse(response);
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load ticket details.");
+        }
+        return data;
+      }
+
+      async function resendTicket(reference) {
+        const response = await fetch(
+          `/tickets/${encodeURIComponent(reference)}/resend`,
+          { method: "POST" }
+        );
+        const data = await parseResponse(response);
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to resend ticket.");
+        }
+        return data;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "Not recorded";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString();
+      }
+
+      function renderHistory(history = []) {
+        if (!history.length) {
+          return '<p class="text-sm text-gray-500">No history recorded.</p>';
+        }
+
+        return `
+          <ul class="space-y-1">
+            ${history
+              .slice()
+              .reverse()
+              .map(
+                (entry) => `
+                  <li class="text-sm text-gray-700">
+                    <span class="font-semibold">${entry.action || "updated"}</span>
+                    ${
+                      entry.from_status && entry.status
+                        ? `${entry.from_status} -> ${entry.status}`
+                        : entry.status
+                        ? `to ${entry.status}`
+                        : ""
+                    }
+                    <span class="text-gray-500">- ${formatDateTime(entry.at)}</span>
+                  </li>
+                `
+              )
+              .join("")}
+          </ul>
+        `;
+      }
+
+      function renderTicketDetails(ticket) {
+        return `
+          <div class="border-t pt-3 text-left space-y-3">
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <p><span class="font-semibold">Reference:</span><br>${ticket.reference_number}</p>
+              <p><span class="font-semibold">Status:</span><br>${ticket.status}</p>
+              <p><span class="font-semibold">Created:</span><br>${formatDateTime(ticket.created_at || ticket.timestamp)}</p>
+              <p><span class="font-semibold">Updated:</span><br>${formatDateTime(ticket.status_updated_at)}</p>
+              <p><span class="font-semibold">Redeemed:</span><br>${formatDateTime(ticket.redeemed_at)}</p>
+              <p><span class="font-semibold">Last emailed:</span><br>${formatDateTime(ticket.email_sent_at)}</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <a
+                href="${ticket.pdf_url}"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-block bg-gray-900 text-white text-sm font-semibold px-3 py-2 rounded-md hover:bg-gray-700"
+              >
+                Open PDF
+              </a>
+            </div>
+            <div>
+              <p class="font-semibold text-sm mb-1">Status history</p>
+              ${renderHistory(ticket.status_history)}
+            </div>
+            <div>
+              <p class="font-semibold text-sm mb-1">Email history</p>
+              ${renderHistory(ticket.email_history)}
+            </div>
+          </div>
+        `;
+      }
+
       function ticketStatusOptions(currentStatus) {
         const statuses = ["sold", "redeemed", "cancelled", "void"];
         return statuses
@@ -446,6 +537,13 @@
                     ${ticketStatusBadge(ticket[3])}
                     <button
                       type="button"
+                      class="view-ticket h-9 px-3 border rounded-md text-sm text-gray-600 hover:bg-gray-100"
+                      title="View ticket details"
+                    >
+                      Details
+                    </button>
+                    <button
+                      type="button"
                       class="edit-ticket h-9 w-9 border rounded-md text-gray-600 hover:bg-gray-100"
                       title="Edit ticket"
                       aria-label="Edit ticket"
@@ -454,7 +552,7 @@
                     </button>
                   </div>
                 </div>
-                <div class="ticket-actions hidden grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+                <div class="ticket-actions hidden flex flex-wrap gap-2 items-center">
                   <select class="ticket-status w-full p-2 border rounded-md text-sm">
                     ${ticketStatusOptions(ticket[3])}
                   </select>
@@ -466,11 +564,18 @@
                   </button>
                   <button
                     type="button"
+                    class="resend-ticket bg-gray-900 text-white text-sm font-semibold px-3 py-2 rounded-md hover:bg-gray-700"
+                  >
+                    Resend
+                  </button>
+                  <button
+                    type="button"
                     class="delete-ticket bg-red-600 text-white text-sm font-semibold px-3 py-2 rounded-md hover:bg-red-700"
                   >
                     Delete
                   </button>
                 </div>
+                <div class="ticket-details hidden"></div>
               `;
               ticketList.appendChild(li);
             });
@@ -505,6 +610,36 @@
         const ticketList = document.getElementById("ticketList");
         const ticketsContainer = document.querySelectorAll(".tab-content")[2];
 
+        ticketList.querySelectorAll(".view-ticket").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const item = button.closest("li");
+            const reference = item.dataset.reference;
+            const details = item.querySelector(".ticket-details");
+            const isOpen = !details.classList.contains("hidden");
+
+            if (isOpen) {
+              details.classList.add("hidden");
+              button.textContent = "Details";
+              return;
+            }
+
+            button.disabled = true;
+            button.textContent = "Loading...";
+            try {
+              const ticket = await fetchTicketDetail(reference);
+              details.innerHTML = renderTicketDetails(ticket);
+              details.classList.remove("hidden");
+              button.textContent = "Hide";
+            } catch (error) {
+              console.error("Ticket detail error:", error);
+              showAlert(error.message, false, ticketsContainer);
+              button.textContent = "Details";
+            } finally {
+              button.disabled = false;
+            }
+          });
+        });
+
         ticketList.querySelectorAll(".edit-ticket").forEach((button) => {
           button.addEventListener("click", () => {
             const item = button.closest("li");
@@ -521,6 +656,30 @@
               "title",
               isEditing ? "Close ticket editor" : "Edit ticket"
             );
+          });
+        });
+
+        ticketList.querySelectorAll(".resend-ticket").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const item = button.closest("li");
+            const reference = item.dataset.reference;
+            const originalText = button.textContent;
+
+            button.disabled = true;
+            button.textContent = "Sending...";
+            try {
+              const data = await resendTicket(reference);
+              showAlert(`Resent ${reference}.`, true, ticketsContainer, data.email_preview_url);
+              if (data.email_preview_url) {
+                window.open(data.email_preview_url, "_blank", "noopener,noreferrer");
+              }
+            } catch (error) {
+              console.error("Ticket resend error:", error);
+              showAlert(error.message, false, ticketsContainer);
+            } finally {
+              button.disabled = false;
+              button.textContent = originalText;
+            }
           });
         });
 
