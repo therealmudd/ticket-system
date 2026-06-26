@@ -237,6 +237,43 @@
           .join("");
       }
 
+      function ticketStatusBadge(status) {
+        const badges = {
+          sold: {
+            label: "Sold",
+            icon: "●",
+            classes: "bg-blue-100 text-blue-800 border-blue-200",
+          },
+          redeemed: {
+            label: "Redeemed",
+            icon: "✓",
+            classes: "bg-green-100 text-green-800 border-green-200",
+          },
+          cancelled: {
+            label: "Cancelled",
+            icon: "!",
+            classes: "bg-amber-100 text-amber-800 border-amber-200",
+          },
+          void: {
+            label: "Void",
+            icon: "×",
+            classes: "bg-red-100 text-red-800 border-red-200",
+          },
+        };
+        const badge = badges[status] || {
+          label: status || "Unknown",
+          icon: "?",
+          classes: "bg-gray-100 text-gray-800 border-gray-200",
+        };
+
+        return `
+          <span class="inline-flex items-center gap-1 border rounded-full px-2 py-1 text-xs font-semibold ${badge.classes}">
+            <span>${badge.icon}</span>
+            <span>${badge.label}</span>
+          </span>
+        `;
+      }
+
       // Form submission with spinner and alert
       document
         .getElementById("ticketForm")
@@ -405,14 +442,17 @@
                     <p class="text-sm text-gray-600">${ticket[2]}</p>
                     <p class="text-xs text-gray-500">Event: ${ticket[5]}</p>
                   </div>
-                  <button
-                    type="button"
-                    class="edit-ticket h-9 w-9 border rounded-md text-gray-600 hover:bg-gray-100"
-                    title="Edit ticket"
-                    aria-label="Edit ticket"
-                  >
-                    ✎
-                  </button>
+                  <div class="flex items-start gap-2">
+                    ${ticketStatusBadge(ticket[3])}
+                    <button
+                      type="button"
+                      class="edit-ticket h-9 w-9 border rounded-md text-gray-600 hover:bg-gray-100"
+                      title="Edit ticket"
+                      aria-label="Edit ticket"
+                    >
+                      ✎
+                    </button>
+                  </div>
                 </div>
                 <div class="ticket-actions hidden grid grid-cols-[1fr_auto_auto] gap-2 items-center">
                   <select class="ticket-status w-full p-2 border rounded-md text-sm">
