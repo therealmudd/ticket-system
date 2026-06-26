@@ -23,6 +23,36 @@ The default maximum is 10 tickets per request. Override it with:
 $env:MAX_TICKETS_PER_REQUEST="20"
 ```
 
+## Managing Tickets
+
+The tickets page lets you update a ticket's status or delete a ticket for the
+active event. Ticket admin actions are event-scoped, so they do not update or
+delete tickets from another `EVENT_ID`.
+
+Allowed statuses:
+
+```text
+sold
+redeemed
+cancelled
+void
+```
+
+API endpoints:
+
+```text
+PATCH /tickets/<reference>
+DELETE /tickets/<reference>
+```
+
+Example status update body:
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
 ## Non-Production Testing
 
 Use environment variables to keep local or staging tests away from production

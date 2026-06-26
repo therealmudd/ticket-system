@@ -55,6 +55,7 @@ QR_PAYLOAD_PADDING = os.getenv(
     "QR_PAYLOAD_PADDING",
     ".",
 ).strip()
+VALID_TICKET_STATUSES = {"sold", "redeemed", "cancelled", "void"}
 
 DEFAULT_QR_CONFIG = {
     "x": None,
@@ -212,6 +213,16 @@ def update_ticket_status_in_database(reference, status):
     current_event_doc, _ = get_ticket_document_from_database(reference)
     if current_event_doc:
         current_event_doc.reference.update({"status": status})
+        return True
+    return False
+
+
+def delete_ticket_from_database(reference):
+    current_event_doc, _ = get_ticket_document_from_database(reference)
+    if current_event_doc:
+        current_event_doc.reference.delete()
+        return True
+    return False
 
 
 def redeem_ticket_from_database(reference):
@@ -575,6 +586,30 @@ def tickets():
     tickets = get_all_tickets_from_database()
 
     return json.dumps(tickets)
+
+
+@app.route("/tickets/<reference>", methods=["PATCH"])
+def update_ticket(reference):
+    data = request.get_json(silent=True) or {}
+    status = data.get("status", "").strip().lower()
+
+    if status not in VALID_TICKET_STATUSES:
+        return {
+            "error": f"Status must be one of: {', '.join(sorted(VALID_TICKET_STATUSES))}."
+        }, 400
+
+    if not update_ticket_status_in_database(reference, status):
+        return {"error": "Ticket not found for the active event."}, 404
+
+    return {"reference": reference, "status": status}
+
+
+@app.route("/tickets/<reference>", methods=["DELETE"])
+def delete_ticket(reference):
+    if not delete_ticket_from_database(reference):
+        return {"error": "Ticket not found for the active event."}, 404
+
+    return {"reference": reference, "deleted": True}
 
 
 @app.route("/redeem-ticket/<reference>")

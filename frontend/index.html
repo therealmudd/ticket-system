@@ -201,6 +201,42 @@
         );
       }
 
+      async function updateTicketStatus(reference, status) {
+        const response = await fetch(`/tickets/${encodeURIComponent(reference)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        const data = await parseResponse(response);
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to update ticket.");
+        }
+        return data;
+      }
+
+      async function deleteTicket(reference) {
+        const response = await fetch(`/tickets/${encodeURIComponent(reference)}`, {
+          method: "DELETE",
+        });
+        const data = await parseResponse(response);
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to delete ticket.");
+        }
+        return data;
+      }
+
+      function ticketStatusOptions(currentStatus) {
+        const statuses = ["sold", "redeemed", "cancelled", "void"];
+        return statuses
+          .map(
+            (status) =>
+              `<option value="${status}" ${
+                status === currentStatus ? "selected" : ""
+              }>${status}</option>`
+          )
+          .join("");
+      }
+
       // Form submission with spinner and alert
       document
         .getElementById("ticketForm")
@@ -360,19 +396,37 @@
 
             tickets.forEach((ticket) => {
               const li = document.createElement("li");
-              li.className =
-                "p-3 border rounded-md flex justify-between items-center";
+              li.className = "p-3 border rounded-md space-y-3";
+              li.dataset.reference = ticket[0];
               li.innerHTML = `
-            <div>
-              <p class="font-semibold" ${ticket[4] ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>#${ticket[0]} – ${ticket[1]}</p>
-              <p class="text-sm text-gray-600" ${ticket[4] ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>${ticket[2]}</p>
-            </div>
-            <div class="text-right text-sm text-gray-500">
-              <p ${ticket[4] ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>${ticket[3]}</p>
-            </div>
-          `;
+                <div class="flex justify-between gap-3">
+                  <div>
+                    <p class="font-semibold">#${ticket[0]} – ${ticket[1]}</p>
+                    <p class="text-sm text-gray-600">${ticket[2]}</p>
+                    <p class="text-xs text-gray-500">Event: ${ticket[5]}</p>
+                  </div>
+                </div>
+                <div class="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+                  <select class="ticket-status w-full p-2 border rounded-md text-sm">
+                    ${ticketStatusOptions(ticket[3])}
+                  </select>
+                  <button
+                    type="button"
+                    class="save-ticket-status bg-indigo-600 text-white text-sm font-semibold px-3 py-2 rounded-md hover:bg-indigo-700"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    class="delete-ticket bg-red-600 text-white text-sm font-semibold px-3 py-2 rounded-md hover:bg-red-700"
+                  >
+                    Delete
+                  </button>
+                </div>
+              `;
               ticketList.appendChild(li);
             });
+            setupTicketActions();
             setupSearchFilter();
           })
           .catch((err) => {
@@ -388,15 +442,67 @@
         const ticketList = document.getElementById("ticketList");
 
         if (searchInput) {
-          searchInput.addEventListener("input", () => {
+          searchInput.oninput = () => {
             const query = searchInput.value.toLowerCase();
             const items = ticketList.querySelectorAll("li");
             items.forEach((item) => {
               const text = item.textContent.toLowerCase();
               item.style.display = text.includes(query) ? "" : "none";
             });
-          });
+          };
         }
+      }
+
+      function setupTicketActions() {
+        const ticketList = document.getElementById("ticketList");
+        const ticketsContainer = document.querySelectorAll(".tab-content")[2];
+
+        ticketList.querySelectorAll(".save-ticket-status").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const item = button.closest("li");
+            const reference = item.dataset.reference;
+            const status = item.querySelector(".ticket-status").value;
+            const originalText = button.textContent;
+
+            button.disabled = true;
+            button.textContent = "Saving...";
+            try {
+              await updateTicketStatus(reference, status);
+              showAlert(`Updated ${reference} to ${status}.`, true, ticketsContainer);
+              loadTickets();
+            } catch (error) {
+              console.error("Ticket update error:", error);
+              showAlert(error.message, false, ticketsContainer);
+            } finally {
+              button.disabled = false;
+              button.textContent = originalText;
+            }
+          });
+        });
+
+        ticketList.querySelectorAll(".delete-ticket").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const item = button.closest("li");
+            const reference = item.dataset.reference;
+            const confirmed = window.confirm(`Delete ticket ${reference}?`);
+            if (!confirmed) return;
+
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = "Deleting...";
+            try {
+              await deleteTicket(reference);
+              showAlert(`Deleted ${reference}.`, true, ticketsContainer);
+              loadTickets();
+            } catch (error) {
+              console.error("Ticket delete error:", error);
+              showAlert(error.message, false, ticketsContainer);
+            } finally {
+              button.disabled = false;
+              button.textContent = originalText;
+            }
+          });
+        });
       }
     </script>
   </body>
