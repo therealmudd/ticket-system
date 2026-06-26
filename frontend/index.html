@@ -146,12 +146,21 @@
       window.addEventListener("DOMContentLoaded", initTabFromHash);
 
       // Show alert message
-      function showAlert(message, success = true, container) {
+      function showAlert(message, success = true, container, linkUrl = null) {
         const alert = document.createElement("div");
         alert.className = `text-sm p-2 rounded mb-2 ${
           success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
         }`;
         alert.textContent = message;
+        if (linkUrl) {
+          const link = document.createElement("a");
+          link.href = linkUrl;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.className = "block mt-1 underline font-semibold";
+          link.textContent = "Open email preview";
+          alert.appendChild(link);
+        }
         container.prepend(alert);
         setTimeout(() => alert.remove(), 4000);
       }
@@ -217,8 +226,12 @@
             showAlert(
               `${ticketWord} created: ${references.join(", ")}`,
               true,
-              formContainer
+              formContainer,
+              data.email_preview_url
             );
+            if (data.email_preview_url) {
+              window.open(data.email_preview_url, "_blank", "noopener,noreferrer");
+            }
             form.reset();
             loadTickets();
           } catch (error) {

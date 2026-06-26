@@ -57,6 +57,16 @@ This keeps test ticket creation and redemption separate from the production
 `EMAIL_MODE=console` still generates the ticket PDFs, but skips SMTP sending and
 prints the intended recipient and references in the server logs.
 
+When tickets are created outside production, the create response also includes an
+email preview link. The frontend opens this link in a separate tab so you can
+inspect the email body and attachment filenames without sending to a buyer.
+
+Email previews are available only outside production:
+
+```text
+/email-preview?references=TKT26062026001,TKT26062026002
+```
+
 For a staging/preview deployment where you want to send emails only to yourself:
 
 ```text

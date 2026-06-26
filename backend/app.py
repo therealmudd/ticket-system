@@ -5,6 +5,7 @@ import io
 import smtplib
 import json as json_module
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -12,7 +13,7 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from flask import Flask, json, jsonify, render_template, request, send_file
+from flask import Flask, json, jsonify, render_template, request, send_file, url_for
 from firebase_admin import firestore
 
 from PIL import Image
@@ -232,31 +233,24 @@ def create_ticket_pdf(reference_number):
     return pdf_bytes
 
 
-def send_email(name, email, reference_numbers):
+def build_email_details(name, email, reference_numbers):
     ticket_word = "ticket" if len(reference_numbers) == 1 else "tickets"
     reference_list = "".join(
         f"<li><strong>{reference_number}</strong></li>"
         for reference_number in reference_numbers
     )
-
-    # Email content
-    msg = MIMEMultipart()
-    msg["Subject"] = f"Your {ticket_word} for the LT Annual Ball!"
-    msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_REDIRECT_TO or email
-    if EMAIL_REDIRECT_TO:
-        msg["X-Original-To"] = email
-
+    recipient = EMAIL_REDIRECT_TO or email
+    subject = f"Your {ticket_word} for the LT Annual Ball!"
+    attachments = [f"{reference_number}.pdf" for reference_number in reference_numbers]
     location_link = "https://www.google.com/maps/dir//15+Mullins+Rd,+Malvern+East,+Germiston,+1401/@-26.1990207,28.0402136,12z/data=!4m8!4m7!1m0!1m5!1m1!1s0x1e9511e61722bd6f:0x3a607bc68bc577a3!2m2!1d28.1227225!2d-26.1990134?entry=ttu&g_ep=EgoyMDI1MDUyMS4wIKXMDSoASAFQAw%3D%3D"
 
-    # HTML content
     html = f"""
     <html>
     <body style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="font-size: 24px; margin-bottom: 10px;">Your LT Annual Ball Ticket</h2>
             <p>Hi {name},</p>
-            <p>Thank you for your purchase! We're excited to have you join us for the LT Annual Ball, happening on <strong>Saturday 28 June, 18:00 at <a href="{location_link}" target="_blank">15 Mullins Rd, Germiston</a>.</strong></p>
+            <p>Thank you for your purchase! We're excited to have you join us for the LT Annual Ball, happening on <strong>Saturday 27 June, 18:00 at <a href="{location_link}" target="_blank">15 Mullins Rd, Germiston</a>.</strong></p>
             <p>Please find attached your {ticket_word} for entry - either printed or on your phone.</p>
             <p>Your ticket reference number{"s are" if len(reference_numbers) > 1 else " is"}:</p>
             <ul>{reference_list}</ul>
@@ -269,8 +263,28 @@ def send_email(name, email, reference_numbers):
     </html>
     """
 
+    return {
+        "to": recipient,
+        "original_to": email,
+        "subject": subject,
+        "html": html,
+        "attachments": attachments,
+    }
+
+
+def send_email(name, email, reference_numbers):
+    email_details = build_email_details(name, email, reference_numbers)
+
+    # Email content
+    msg = MIMEMultipart()
+    msg["Subject"] = email_details["subject"]
+    msg["From"] = EMAIL_FROM
+    msg["To"] = email_details["to"]
+    if EMAIL_REDIRECT_TO:
+        msg["X-Original-To"] = email
+
     # Attach HTML
-    msg.attach(MIMEText(html, "html"))
+    msg.attach(MIMEText(email_details["html"], "html"))
 
     # Attach one PDF per ticket.
     for reference_number in reference_numbers:
@@ -314,6 +328,90 @@ def health():
     }
 
 
+@app.route("/email-preview")
+def email_preview():
+    if APP_ENV == "production":
+        return {"error": "Email previews are only available outside production."}, 404
+
+    reference_numbers = [
+        reference.strip()
+        for reference in request.args.get("references", "").split(",")
+        if reference.strip()
+    ]
+    if not reference_numbers:
+        return {"error": "At least one ticket reference is required."}, 400
+
+    ticket = get_ticket_from_database(reference_numbers[0])
+    if not ticket:
+        return {"error": "Ticket not found."}, 404
+
+    email_details = build_email_details(
+        ticket["name"], ticket["email"], reference_numbers
+    )
+    attachment_items = "".join(
+        f"<li>{escape(attachment)}</li>" for attachment in email_details["attachments"]
+    )
+
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Email Preview</title>
+        <style>
+          body {{
+            margin: 0;
+            background: #f3f4f6;
+            color: #111827;
+            font-family: Arial, sans-serif;
+          }}
+          main {{
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 24px;
+          }}
+          .meta, .email {{
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            padding: 18px;
+          }}
+          .label {{
+            color: #6b7280;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+          }}
+          iframe {{
+            width: 100%;
+            min-height: 520px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: white;
+          }}
+        </style>
+      </head>
+      <body>
+        <main>
+          <section class="meta">
+            <p><span class="label">Environment</span><br>{escape(APP_ENV)}</p>
+            <p><span class="label">To</span><br>{escape(email_details["to"])}</p>
+            <p><span class="label">Original To</span><br>{escape(email_details["original_to"])}</p>
+            <p><span class="label">Subject</span><br>{escape(email_details["subject"])}</p>
+            <p><span class="label">Attachments</span></p>
+            <ul>{attachment_items}</ul>
+          </section>
+          <section class="email">
+            <iframe title="Email body" srcdoc="{escape(email_details["html"], quote=True)}"></iframe>
+          </section>
+        </main>
+      </body>
+    </html>
+    """
+
+
 @app.route("/qr/<reference>")
 def qr(reference):
     qr = qrcode.QRCode(box_size=10, border=4)
@@ -350,7 +448,13 @@ def generate():
 
         send_email(name, email, reference_numbers)
 
-        return {"references": reference_numbers}
+        response = {"references": reference_numbers}
+        if APP_ENV != "production":
+            response["email_preview_url"] = url_for(
+                "email_preview", references=",".join(reference_numbers)
+            )
+
+        return response
     except Exception as error:
         app.logger.exception("Create ticket failed")
         message = "Create ticket failed. Check the Vercel function logs for details."
